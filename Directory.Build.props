@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Authors>KBEA Contributors</Authors>
+    <Product>知识库自进化助手</Product>
+  </PropertyGroup>
+</Project>

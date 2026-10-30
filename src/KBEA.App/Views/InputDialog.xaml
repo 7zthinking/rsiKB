@@ -1,0 +1,15 @@
+<Window x:Class="KBEA.App.Views.InputDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="输入" Width="460" Height="190" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <Grid Margin="22">
+        <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <TextBlock x:Name="LabelText" TextWrapping="Wrap" Margin="0,0,0,12" />
+        <TextBox x:Name="ValueBox" Grid.Row="1" Height="34" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="取消" Width="82" IsCancel="True" Margin="0,0,10,0" />
+            <Button Content="确定" Width="82" Style="{StaticResource PrimaryButton}" IsDefault="True" Click="Save_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

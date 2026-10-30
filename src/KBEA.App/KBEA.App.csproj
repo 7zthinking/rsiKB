@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>KBEA</AssemblyName>
+    <RootNamespace>KBEA.App</RootNamespace>
+    <Version>0.1.0</Version>
+    <Description>知识库自进化助手开源版</Description>
+    <SingleAssembly Condition="'$(SingleAssembly)' == ''">false</SingleAssembly>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(SingleAssembly)' != 'true'">
+    <ProjectReference Include="..\KBEA.Core\KBEA.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+  </ItemGroup>
+
+  <!-- Optional single-assembly source run for devices with application-control
+       policies that block newly built, unsigned dependency DLLs. -->
+  <ItemGroup Condition="'$(SingleAssembly)' == 'true'">
+    <Compile Include="..\KBEA.Core\**\*.cs"
+             Exclude="..\KBEA.Core\obj\**\*;..\KBEA.Core\bin\**\*"
+             Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+    <PackageReference Include="DiffPlex" Version="1.7.2" />
+    <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,26 @@
+# Build outputs
+bin/
+obj/
+artifacts/
+publish/
+
+# Local SDK and package cache
+.dotnet/
+.dotnet-home/
+.nuget/
+.build-tools/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Logs and diagnostics
+*.log
+*.binlog
+
+# Runtime data
+.7z/
+plugins/*
+!plugins/README.md
