@@ -1,16 +1,22 @@
 # 知识库自进化助手（KBEA）开源版
 
+[![Build, test and package](https://github.com/7zthinking/rsiKB/actions/workflows/build.yml/badge.svg)](https://github.com/7zthinking/rsiKB/actions/workflows/build.yml)
+
 基于设计文档 v1.1 实现的 Windows 桌面工程。当前版本为 **v0.1.0 基础可运行版**，开源核心不依赖闭源组件。
 
 ## 快速运行
 
 ### 绿色版
 
-1. 打开 `artifacts/KBEA-Portable/`。
-2. 双击 `KBEA.exe`。程序已包含 .NET 8 运行库和 LibGit2Sharp 原生组件，无需另装运行时。
+1. 从 [GitHub Releases](https://github.com/7zthinking/rsiKB/releases) 下载对应版本的 Windows x64 ZIP。
+2. 解压后双击 `KBEA.exe`。程序已包含 .NET 8 运行库和 LibGit2Sharp 原生组件，无需另装运行时。
 3. 点击“挂接文件夹”选择真实资料目录。
 
-> 发布程序当前未做商业代码签名。如果企业设备的 Windows 应用控制或 Smart App Control 阻止新程序，请按组织流程签名或审核放行，不要关闭安全功能。
+### Code signing
+
+This project uses SignPath Foundation for Windows code signing.
+
+签名服务处于申请与接入阶段；接入完成前，开发构建仍为未签名文件。如果企业设备的 Windows 应用控制或 Smart App Control 阻止新程序，请按组织流程审核放行，不要关闭安全功能。详见 `docs/SIGNPATH.md`。
 
 ### 源码开发
 
