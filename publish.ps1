@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Dotnet = Join-Path $Root ".dotnet/dotnet.exe"
 if (-not (Test-Path $Dotnet)) { $Dotnet = "dotnet" }
