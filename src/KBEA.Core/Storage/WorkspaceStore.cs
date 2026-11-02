@@ -24,7 +24,7 @@ public sealed class WorkspaceStore
         {
             if (!File.Exists(ConfigPath))
             {
-                var initial = CreateDefault();
+                var initial = new AppConfiguration();
                 Save(initial);
                 return initial;
             }
@@ -32,18 +32,19 @@ public sealed class WorkspaceStore
             try
             {
                 var json = File.ReadAllText(ConfigPath);
-                var configuration = JsonSerializer.Deserialize<AppConfiguration>(json, _jsonOptions) ?? CreateDefault();
-                if (configuration.Workspaces.Count == 0)
-                {
-                    configuration.Workspaces.Add(CreateDefaultWorkspace());
-                }
+                var configuration = JsonSerializer.Deserialize<AppConfiguration>(json, _jsonOptions) ?? new AppConfiguration();
+                configuration.Workspaces.RemoveAll(workspace =>
+                    workspace.Name == "默认工作空间" &&
+                    workspace.Mounts.Count == 0 &&
+                    workspace.Favorites.Count == 0 &&
+                    workspace.Categories.Select(x => x.Name).SequenceEqual(["项目", "专业", "阶段"]));
                 return configuration;
             }
             catch (JsonException)
             {
                 var backup = ConfigPath + $".broken-{DateTime.Now:yyyyMMddHHmmss}";
                 File.Copy(ConfigPath, backup, overwrite: true);
-                var initial = CreateDefault();
+                var initial = new AppConfiguration();
                 Save(initial);
                 return initial;
             }
@@ -61,20 +62,4 @@ public sealed class WorkspaceStore
             File.Move(temporary, ConfigPath, overwrite: true);
         }
     }
-
-    private AppConfiguration CreateDefault() => new()
-    {
-        Workspaces = [CreateDefaultWorkspace()]
-    };
-
-    private static WorkspaceDefinition CreateDefaultWorkspace() => new()
-    {
-        Name = "默认工作空间",
-        Categories =
-        [
-            new CategoryNode { Name = "项目" },
-            new CategoryNode { Name = "专业" },
-            new CategoryNode { Name = "阶段" }
-        ]
-    };
 }

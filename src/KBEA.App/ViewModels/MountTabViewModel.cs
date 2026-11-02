@@ -17,10 +17,11 @@ public sealed partial class MountTabViewModel : ObservableObject
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp" };
     private readonly FileBrowserService _files;
     private readonly GitService _git;
-    private readonly MetadataStore _metadata;
+    private readonly MetadataStore? _metadata;
     private readonly Stack<string> _back = new();
     private readonly Stack<string> _forward = new();
     private string _currentPath;
+    private string _addressText = string.Empty;
     private FileEntry? _selectedFile;
     private string _previewText = "选择文本文件可在此预览。";
     private BitmapImage? _previewImage;
@@ -32,39 +33,88 @@ public sealed partial class MountTabViewModel : ObservableObject
     {
         Mount = mount;
         Workspace = workspace;
+        RootPath = mount.Path;
         _files = files;
         _git = git;
         _metadata = new MetadataStore(mount.Path);
         _currentPath = mount.Path;
         Title = mount.Name;
+        Initialize();
+    }
+
+    public MountTabViewModel(string path, FileBrowserService files, GitService git)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var rootPath = Path.GetPathRoot(fullPath) ?? fullPath;
+        Mount = new MountDefinition { Name = "本地目录", Path = rootPath };
+        Workspace = new WorkspaceDefinition { Name = "本地目录" };
+        RootPath = rootPath;
+        IsLocal = true;
+        _files = files;
+        _git = git;
+        _currentPath = fullPath;
+        Title = new DirectoryInfo(fullPath).Name is { Length: > 0 } name ? name : fullPath;
+        Initialize();
+    }
+
+    private void Initialize()
+    {
+        _addressText = CurrentPath;
         BackCommand = new RelayCommand(Back, () => _back.Count > 0);
         ForwardCommand = new RelayCommand(Forward, () => _forward.Count > 0);
-        UpCommand = new RelayCommand(Up, () => !string.Equals(CurrentPath, Mount.Path, StringComparison.OrdinalIgnoreCase));
+        UpCommand = new RelayCommand(Up, CanGoUp);
         RefreshCommand = new RelayCommand(Refresh);
         OpenCommand = new RelayCommand(OpenSelected, () => SelectedFile is not null);
         SearchCommand = new RelayCommand(Search);
+        NavigateAddressCommand = new RelayCommand(() =>
+        {
+            if (!Directory.Exists(AddressText)) { AddressText = CurrentPath; return; }
+            var fullPath = Path.GetFullPath(AddressText);
+            var rootPrefix = RootPath.EndsWith(Path.DirectorySeparatorChar) ? RootPath : RootPath + Path.DirectorySeparatorChar;
+            if (!IsLocal && !fullPath.Equals(RootPath, StringComparison.OrdinalIgnoreCase) && !fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                AddressText = CurrentPath;
+                return;
+            }
+            if (IsLocal)
+            {
+                var newRoot = Path.GetPathRoot(fullPath) ?? RootPath;
+                if (!newRoot.Equals(RootPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    RootPath = newRoot;
+                    Mount.Path = newRoot;
+                    Directories.Clear();
+                    Directories.Add(new FolderNodeViewModel(this, RootPath, RootPath, _files));
+                }
+            }
+            Navigate(fullPath);
+        });
         TogglePreviewCommand = new RelayCommand(() => IsPreviewVisible = !IsPreviewVisible);
-        Directories.Add(new FolderNodeViewModel(this, Mount.Path, Mount.Name, _files));
+        Directories.Add(new FolderNodeViewModel(this, RootPath, IsLocal ? RootPath : Mount.Name, _files));
         Refresh();
     }
 
     public MountDefinition Mount { get; }
     public WorkspaceDefinition Workspace { get; }
+    public string RootPath { get; private set; }
+    public bool IsLocal { get; }
     public string Title { get; }
     public event EventHandler? SelectionChanged;
     public ObservableCollection<FileEntry> Files { get; } = [];
     public ObservableCollection<FolderNodeViewModel> Directories { get; } = [];
-    public RelayCommand BackCommand { get; }
-    public RelayCommand ForwardCommand { get; }
-    public RelayCommand UpCommand { get; }
-    public RelayCommand RefreshCommand { get; }
-    public RelayCommand OpenCommand { get; }
-    public RelayCommand SearchCommand { get; }
-    public RelayCommand TogglePreviewCommand { get; }
+    public RelayCommand BackCommand { get; private set; } = null!;
+    public RelayCommand ForwardCommand { get; private set; } = null!;
+    public RelayCommand UpCommand { get; private set; } = null!;
+    public RelayCommand RefreshCommand { get; private set; } = null!;
+    public RelayCommand OpenCommand { get; private set; } = null!;
+    public RelayCommand SearchCommand { get; private set; } = null!;
+    public RelayCommand NavigateAddressCommand { get; private set; } = null!;
+    public RelayCommand TogglePreviewCommand { get; private set; } = null!;
     public string CurrentPath { get => _currentPath; private set => SetProperty(ref _currentPath, value); }
-    public bool IsOnline => Directory.Exists(Mount.Path);
+    public string AddressText { get => _addressText; set => SetProperty(ref _addressText, value); }
+    public bool IsOnline => Directory.Exists(RootPath);
     public string OnlineText => IsOnline ? "在线" : "离线";
-    public string SyncText => Mount.LastSyncAt.HasValue ? $"同步 {Mount.LastSyncAt.Value:MM-dd HH:mm}" : "尚未同步";
+    public string SyncText => IsLocal ? "本地浏览" : Mount.LastSyncAt.HasValue ? $"同步 {Mount.LastSyncAt.Value:MM-dd HH:mm}" : "尚未同步";
     public bool HasImagePreview => PreviewImage is not null;
     public bool HasTextPreview => PreviewImage is null;
 
@@ -110,7 +160,8 @@ public sealed partial class MountTabViewModel : ObservableObject
             _forward.Clear();
         }
         CurrentPath = path;
-        LoadFiles(_files.GetEntries(path, Mount.Path));
+        AddressText = path;
+        LoadFiles(_files.GetEntries(path, RootPath));
         BackCommand.NotifyCanExecuteChanged();
         ForwardCommand.NotifyCanExecuteChanged();
         UpCommand.NotifyCanExecuteChanged();
@@ -118,14 +169,14 @@ public sealed partial class MountTabViewModel : ObservableObject
 
     public void Refresh()
     {
-        GitStatus = _git.GetStatus(Mount.Path);
+        GitStatus = _git.GetStatus(RootPath);
         OnPropertyChanged(nameof(IsOnline));
         OnPropertyChanged(nameof(OnlineText));
         OnPropertyChanged(nameof(SyncText));
-        if (IsOnline) LoadFiles(_files.GetEntries(CurrentPath, Mount.Path));
+        if (IsOnline) LoadFiles(_files.GetEntries(CurrentPath, RootPath));
     }
 
-    public int RebuildIndex() => _metadata.IndexFiles();
+    public int RebuildIndex() => _metadata?.IndexFiles() ?? Files.Count;
 
     public void SelectCatalogFile(string fullPath)
     {
@@ -136,7 +187,7 @@ public sealed partial class MountTabViewModel : ObservableObject
 
     private void LoadFiles(IEnumerable<FileEntry> entries)
     {
-        var states = _git.GetFileStates(Mount.Path);
+        var states = _git.GetFileStates(RootPath);
         Files.Clear();
         foreach (var entry in entries)
         {
@@ -164,10 +215,14 @@ public sealed partial class MountTabViewModel : ObservableObject
         ForwardCommand.NotifyCanExecuteChanged();
     }
 
+    private bool CanGoUp() => IsLocal
+        ? Directory.GetParent(CurrentPath) is not null
+        : !string.Equals(CurrentPath, RootPath, StringComparison.OrdinalIgnoreCase);
+
     private void Up()
     {
         var parent = Directory.GetParent(CurrentPath)?.FullName;
-        if (parent is null || parent.Length < Mount.Path.Length) return;
+        if (parent is null || (!IsLocal && parent.Length < RootPath.Length)) return;
         Navigate(parent);
     }
 
@@ -181,7 +236,9 @@ public sealed partial class MountTabViewModel : ObservableObject
     private void Search()
     {
         if (string.IsNullOrWhiteSpace(SearchText)) { Refresh(); return; }
-        LoadFiles(_metadata.Search(SearchText));
+        LoadFiles(_metadata is null
+            ? _files.SearchEntries(CurrentPath, CurrentPath, SearchText)
+            : _metadata.Search(SearchText));
     }
 
     private void UpdatePreview()
@@ -239,7 +296,7 @@ public sealed class FolderNodeViewModel : ObservableObject
         if (_loaded) return;
         _loaded = true;
         Children.Clear();
-        foreach (var directory in _files.GetDirectories(FullPath, Owner.Mount.Path))
+        foreach (var directory in _files.GetDirectories(FullPath, Owner.RootPath))
             Children.Add(new FolderNodeViewModel(Owner, directory.FullPath, directory.Name, _files));
     }
 

@@ -31,6 +31,39 @@ public sealed class FileBrowserService
     public IReadOnlyList<FileEntry> GetDirectories(string path, string rootPath) =>
         GetEntries(path, rootPath).Where(x => x.IsDirectory).ToArray();
 
+    public IReadOnlyList<FileEntry> SearchEntries(string path, string rootPath, string searchText, int maximumResults = 500)
+    {
+        var results = new List<FileEntry>();
+        if (!Directory.Exists(path) || string.IsNullOrWhiteSpace(searchText)) return results;
+        var pending = new Stack<string>();
+        pending.Push(path);
+        while (pending.Count > 0 && results.Count < maximumResults)
+        {
+            var current = pending.Pop();
+            try
+            {
+                foreach (var directory in Directory.EnumerateDirectories(current))
+                {
+                    if (IsHiddenMetadata(directory)) continue;
+                    var info = new DirectoryInfo(directory);
+                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                    if (info.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                        results.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), true, 0, info.LastWriteTime));
+                    pending.Push(directory);
+                }
+                foreach (var file in Directory.EnumerateFiles(current))
+                {
+                    var info = new FileInfo(file);
+                    if (info.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                        results.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), false, info.Length, info.LastWriteTime));
+                    if (results.Count >= maximumResults) break;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        return results.OrderByDescending(x => x.IsDirectory).ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+
     public string ReadTextPreview(string path, int maximumBytes = 262144)
     {
         var info = new FileInfo(path);

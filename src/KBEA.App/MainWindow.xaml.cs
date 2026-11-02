@@ -22,6 +22,16 @@ public partial class MainWindow : Window
         if (e.NewValue is WorkspaceNodeViewModel node) ViewModel.SelectedNode = node;
     }
 
+    private void LocalTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is LocalFolderViewModel node) ViewModel.OpenLocal(node.FullPath);
+    }
+
+    private void LocalNode_Expanded(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is TreeViewItem { DataContext: LocalFolderViewModel node }) node.Expand();
+    }
+
     private void FolderTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (e.NewValue is FolderNodeViewModel node && ViewModel.SelectedTab == node.Owner) node.Owner.Navigate(node.FullPath);
@@ -30,6 +40,13 @@ public partial class MainWindow : Window
     private void FolderNode_Expanded(object sender, RoutedEventArgs e)
     {
         if (e.OriginalSource is TreeViewItem { DataContext: FolderNodeViewModel node }) node.Expand();
+    }
+
+    private void Address_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        ViewModel.SelectedTab?.NavigateAddressCommand.Execute(null);
+        e.Handled = true;
     }
 
     private void Files_MouseDoubleClick(object sender, MouseButtonEventArgs e)

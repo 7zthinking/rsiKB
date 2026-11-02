@@ -32,6 +32,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _isCatalogView;
     private bool _isBusy;
     private bool _isSidebarVisible = true;
+    private bool _isWorkspaceSidebar = true;
     private bool _isAssistantOpen;
     private bool _disposed;
 
@@ -46,21 +47,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _configuration = store.Load();
         NewWorkspaceCommand = new RelayCommand(NewWorkspace);
         MountFolderCommand = new AsyncRelayCommand(MountFolderAsync);
-        UnmountCommand = new RelayCommand(Unmount, () => SelectedTab is not null || SelectedNode?.Kind == WorkspaceNodeKind.Mount);
+        UnmountCommand = new RelayCommand(Unmount, () => SelectedTab?.IsLocal == false || SelectedNode?.Kind == WorkspaceNodeKind.Mount);
         AddCategoryCommand = new RelayCommand(AddCategory);
-        AssignCategoryCommand = new RelayCommand(AssignCategory, () => SelectedNode?.Kind == WorkspaceNodeKind.Category && SelectedTab?.SelectedFile is not null);
+        AssignCategoryCommand = new RelayCommand(AssignCategory, () => SelectedNode?.Kind == WorkspaceNodeKind.Category && SelectedTab?.IsLocal == false && SelectedTab.SelectedFile is not null);
         BindGitCommand = new AsyncRelayCommand(BindGitAsync, () => SelectedTab?.IsOnline == true && !IsBusy);
         PullCommand = new AsyncRelayCommand(PullAsync, () => SelectedTab?.CanUseGit == true && !IsBusy);
         SavePushCommand = new AsyncRelayCommand(SavePushAsync, () => SelectedTab?.CanUseGit == true && !IsBusy);
         HistoryCommand = new RelayCommand(ShowHistory, () => SelectedTab?.CanUseGit == true);
-        ArchiveCommand = new AsyncRelayCommand(ArchiveAsync, () => SelectedTab?.IsOnline == true && !IsBusy);
-        ArchiveHistoryCommand = new RelayCommand(ShowArchiveHistory, () => SelectedTab?.IsOnline == true);
+        ArchiveCommand = new AsyncRelayCommand(ArchiveAsync, () => SelectedTab?.IsLocal == false && SelectedTab.IsOnline && !IsBusy);
+        ArchiveHistoryCommand = new RelayCommand(ShowArchiveHistory, () => SelectedTab?.IsLocal == false);
         SettingsCommand = new RelayCommand(ShowSettings);
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => SelectedTab is not null && !IsBusy);
+        NewTabCommand = new RelayCommand(NewTab);
         CloseTabCommand = new RelayCommand<MountTabViewModel>(CloseTab);
         OpenCatalogResultCommand = new RelayCommand(OpenCatalogResult, () => SelectedCatalogResult is not null);
         AddFavoriteCommand = new RelayCommand(AddFavorite, () => SelectedTab is not null);
         OpenFavoriteCommand = new RelayCommand<string>(OpenFavorite);
+        OpenLocalFolderCommand = new RelayCommand(OpenLocalFolder);
+        RefreshLocalFoldersCommand = new RelayCommand(RefreshLocalFolders);
+        ShowWorkspaceSidebarCommand = new RelayCommand(() => IsWorkspaceSidebar = true);
+        ShowLocalSidebarCommand = new RelayCommand(() => IsWorkspaceSidebar = false);
         ExportCatalogCommand = new RelayCommand(ExportCatalog);
         ToggleSidebarCommand = new RelayCommand(() => IsSidebarVisible = !IsSidebarVisible);
         ToggleAssistantCommand = new RelayCommand(() => IsAssistantOpen = !IsAssistantOpen);
@@ -71,6 +77,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public AppConfiguration Configuration => _configuration;
     public ObservableCollection<WorkspaceNodeViewModel> Workspaces { get; } = [];
+    public ObservableCollection<LocalFolderViewModel> LocalFolders { get; } = [];
     public ObservableCollection<MountTabViewModel> Tabs { get; } = [];
     public ObservableCollection<CatalogResult> CatalogResults { get; } = [];
     public ObservableCollection<PluginManifest> Plugins { get; } = [];
@@ -88,15 +95,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand ArchiveHistoryCommand { get; }
     public RelayCommand SettingsCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
+    public RelayCommand NewTabCommand { get; }
     public RelayCommand<MountTabViewModel> CloseTabCommand { get; }
     public RelayCommand OpenCatalogResultCommand { get; }
     public RelayCommand AddFavoriteCommand { get; }
     public RelayCommand<string> OpenFavoriteCommand { get; }
+    public RelayCommand OpenLocalFolderCommand { get; }
+    public RelayCommand RefreshLocalFoldersCommand { get; }
+    public RelayCommand ShowWorkspaceSidebarCommand { get; }
+    public RelayCommand ShowLocalSidebarCommand { get; }
     public RelayCommand ExportCatalogCommand { get; }
     public RelayCommand ToggleSidebarCommand { get; }
     public RelayCommand ToggleAssistantCommand { get; }
     public RelayCommand ToggleThemeCommand { get; }
-    public string Version => "开源版 v0.1.0";
+    public string Version => "开源版 v0.2.0";
     public string PluginSummary => Plugins.Count == 0 ? "智能服务未启用" : $"发现 {Plugins.Count} 个插件";
 
     public WorkspaceNodeViewModel? SelectedNode
@@ -119,6 +131,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (!SetProperty(ref _selectedTab, value)) return;
             if (value is not null) IsCatalogView = false;
+            OnPropertyChanged(nameof(IsBrowserView));
+            OnPropertyChanged(nameof(IsEmptyView));
             RefreshCommands();
             UpdateFavorites();
         }
@@ -132,9 +146,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public string GlobalStatus { get => _globalStatus; set => SetProperty(ref _globalStatus, value); }
     public string CatalogTitle { get => _catalogTitle; set => SetProperty(ref _catalogTitle, value); }
-    public bool IsCatalogView { get => _isCatalogView; set { if (SetProperty(ref _isCatalogView, value)) OnPropertyChanged(nameof(IsBrowserView)); } }
-    public bool IsBrowserView => !IsCatalogView;
+    public bool IsCatalogView
+    {
+        get => _isCatalogView;
+        set
+        {
+            if (!SetProperty(ref _isCatalogView, value)) return;
+            OnPropertyChanged(nameof(IsBrowserView));
+            OnPropertyChanged(nameof(IsEmptyView));
+        }
+    }
+    public bool IsBrowserView => !IsCatalogView && SelectedTab is not null;
+    public bool IsEmptyView => !IsCatalogView && SelectedTab is null;
     public bool IsSidebarVisible { get => _isSidebarVisible; set => SetProperty(ref _isSidebarVisible, value); }
+    public bool IsWorkspaceSidebar
+    {
+        get => _isWorkspaceSidebar;
+        set { if (SetProperty(ref _isWorkspaceSidebar, value)) OnPropertyChanged(nameof(IsLocalSidebar)); }
+    }
+    public bool IsLocalSidebar => !IsWorkspaceSidebar;
     public bool IsAssistantOpen { get => _isAssistantOpen; set => SetProperty(ref _isAssistantOpen, value); }
 
     public bool IsBusy
@@ -146,10 +176,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void Load()
     {
         RebuildTree();
+        RefreshLocalFolders();
         foreach (var plugin in _plugins.Discover()) Plugins.Add(plugin);
         OnPropertyChanged(nameof(PluginSummary));
         foreach (var workspace in _configuration.Workspaces)
         {
+            foreach (var favorite in workspace.Favorites)
+                if (!_configuration.FavoriteFolders.Contains(favorite)) _configuration.FavoriteFolders.Add(favorite);
             foreach (var mount in workspace.Mounts.Where(x => Directory.Exists(x.Path)))
             {
                 try { new MetadataStore(mount.Path).Initialize(); }
@@ -163,6 +196,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             OpenMount(workspace, first);
         }
         UpdateFavorites();
+    }
+
+    private void RefreshLocalFolders()
+    {
+        LocalFolders.Clear();
+        foreach (var drive in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if (drive.IsReady) LocalFolders.Add(new LocalFolderViewModel(drive.RootDirectory.FullName, drive.Name, _files));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     private void RebuildTree()
@@ -189,21 +235,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         var name = _dialogs.Prompt("新建工作空间", "工作空间名称", "新工作空间");
         if (string.IsNullOrWhiteSpace(name)) return;
-        var workspace = new WorkspaceDefinition
-        {
-            Name = name.Trim(),
-            Categories = [new CategoryNode { Name = "项目" }, new CategoryNode { Name = "专业" }, new CategoryNode { Name = "阶段" }]
-        };
+        var workspace = new WorkspaceDefinition { Name = name.Trim() };
         _configuration.Workspaces.Add(workspace);
         SaveConfiguration();
         RebuildTree();
+        SelectedNode = Workspaces.First(x => x.Workspace == workspace);
         GlobalStatus = $"已创建工作空间“{workspace.Name}”。";
     }
 
     private async Task MountFolderAsync()
     {
-        var workspace = SelectedNode?.Workspace ?? _configuration.Workspaces.FirstOrDefault();
-        if (workspace is null) return;
+        var workspace = SelectedNode?.Workspace ?? (SelectedTab?.IsLocal == false ? SelectedTab.Workspace : null) ?? _configuration.Workspaces.FirstOrDefault();
+        if (workspace is null) { _dialogs.Info("请先新建一个工作空间。"); return; }
         var path = _dialogs.SelectFolder("选择要挂接的物理文件夹");
         if (string.IsNullOrWhiteSpace(path)) return;
         if (_configuration.Workspaces.SelectMany(x => x.Mounts).Any(x => x.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
@@ -229,9 +272,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void Unmount()
     {
-        var mount = SelectedNode?.Mount ?? SelectedTab?.Mount;
+        var mount = SelectedNode?.Mount ?? (SelectedTab?.IsLocal == false ? SelectedTab.Mount : null);
         if (mount is null) return;
-        var workspace = _configuration.Workspaces.First(x => x.Mounts.Contains(mount));
+        var workspace = _configuration.Workspaces.FirstOrDefault(x => x.Mounts.Contains(mount));
+        if (workspace is null) return;
         if (!_dialogs.Confirm($"仅从当前工作空间解挂“{mount.Name}”？\n\n磁盘文件、Git 历史和 .7z 元数据都会保留。")) return;
         workspace.Mounts.Remove(mount);
         var tab = Tabs.FirstOrDefault(x => x.Mount == mount);
@@ -245,8 +289,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void AddCategory()
     {
         var node = SelectedNode;
-        var workspace = node?.Workspace ?? _configuration.Workspaces.FirstOrDefault();
-        if (workspace is null) return;
+        var workspace = node?.Workspace ?? (SelectedTab?.IsLocal == false ? SelectedTab.Workspace : null) ?? _configuration.Workspaces.FirstOrDefault();
+        if (workspace is null) { _dialogs.Info("请先新建一个工作空间。"); return; }
         var name = _dialogs.Prompt("新建分类", "分类名称");
         if (string.IsNullOrWhiteSpace(name)) return;
         var category = new CategoryNode { Name = name.Trim() };
@@ -259,7 +303,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void AssignCategory()
     {
-        if (SelectedNode?.Category is not { } category || SelectedTab?.SelectedFile is not { } file) return;
+        if (SelectedNode?.Category is not { } category || SelectedTab?.IsLocal != false || SelectedTab.SelectedFile is not { } file) return;
         try
         {
             var metadata = new MetadataStore(SelectedTab.Mount.Path);
@@ -297,10 +341,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SelectedTab?.SelectCatalogFile(result.FullPath);
     }
 
-    private void OpenMount(WorkspaceDefinition workspace, MountDefinition mount)
+    private void OpenMount(WorkspaceDefinition workspace, MountDefinition mount, bool forceNew = false)
     {
         if (!Directory.Exists(mount.Path)) { _dialogs.Info("该文件夹当前离线。重新连接磁盘或网络后即可使用。"); return; }
-        var tab = Tabs.FirstOrDefault(x => x.Mount == mount);
+        var tab = forceNew ? null : Tabs.FirstOrDefault(x => !x.IsLocal && x.Mount == mount);
         if (tab is null)
         {
             tab = new MountTabViewModel(mount, workspace, _files, _git);
@@ -309,6 +353,42 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         SelectedTab = tab;
         if (_configuration.AutoDetect) _monitor.Start(mount.Path);
+    }
+
+    private void NewTab()
+    {
+        if (SelectedTab is { } tab)
+        {
+            if (tab.IsLocal) OpenLocal(tab.CurrentPath, forceNew: true);
+            else OpenMount(tab.Workspace, tab.Mount, forceNew: true);
+            return;
+        }
+        OpenLocalFolder();
+    }
+
+    private void OpenLocalFolder()
+    {
+        var path = _dialogs.SelectFolder("选择要浏览的本地文件夹");
+        if (!string.IsNullOrWhiteSpace(path)) OpenLocal(path, forceNew: true);
+    }
+
+    public void OpenLocal(string path, bool forceNew = false)
+    {
+        if (!Directory.Exists(path)) return;
+        if (!forceNew && SelectedTab?.IsLocal == true && path.StartsWith(SelectedTab.RootPath, StringComparison.OrdinalIgnoreCase))
+        {
+            SelectedTab.Navigate(path);
+            return;
+        }
+        var tab = forceNew ? null : Tabs.FirstOrDefault(x => x.IsLocal && path.StartsWith(x.RootPath, StringComparison.OrdinalIgnoreCase));
+        if (tab is null)
+        {
+            tab = new MountTabViewModel(path, _files, _git);
+            Tabs.Add(tab);
+        }
+        else if (!tab.CurrentPath.Equals(path, StringComparison.OrdinalIgnoreCase)) tab.Navigate(path);
+        SelectedTab = tab;
+        GlobalStatus = $"正在浏览 {path}";
     }
 
     private async Task BindGitAsync()
@@ -341,14 +421,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             var message = await Task.Run(action);
             tab.Mount.LastSyncAt = DateTimeOffset.Now;
-            new MetadataStore(tab.Mount.Path).RecordSync(operation, "成功", message);
+            if (!tab.IsLocal) new MetadataStore(tab.Mount.Path).RecordSync(operation, "成功", message);
             SaveConfiguration();
             tab.Refresh();
             GlobalStatus = $"{tab.Title}：{message}";
         }
         catch (Exception ex)
         {
-            try { new MetadataStore(tab.Mount.Path).RecordSync(operation, "失败", ex.Message); } catch { }
+            try { if (!tab.IsLocal) new MetadataStore(tab.Mount.Path).RecordSync(operation, "失败", ex.Message); } catch { }
             GlobalStatus = $"{tab.Title}：{operation}失败";
             _dialogs.Info($"{operation}失败：{ex.Message}");
         }
@@ -362,7 +442,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task ArchiveAsync()
     {
-        if (SelectedTab is not { } tab) return;
+        if (SelectedTab is not { IsLocal: false } tab) return;
         var note = _dialogs.Prompt("标记关键节点", "节点备注", $"关键节点 {DateTime.Now:yyyy-MM-dd HH:mm}");
         if (note is null) return;
         IsBusy = true;
@@ -379,7 +459,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void ShowArchiveHistory()
     {
-        if (SelectedTab is { } tab) _dialogs.ShowArchives(_archive.GetHistory(tab.Mount.Path), $"{tab.Title} · 关键节点");
+        if (SelectedTab is { IsLocal: false } tab) _dialogs.ShowArchives(_archive.GetHistory(tab.Mount.Path), $"{tab.Title} · 关键节点");
     }
 
     private void ShowSettings()
@@ -400,12 +480,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (SelectedTab is not { } tab || !tab.IsOnline) return;
         IsBusy = true;
-        GlobalStatus = $"{tab.Title}：正在刷新索引与 Git 状态…";
+        GlobalStatus = $"{tab.Title}：正在刷新{(tab.IsLocal ? "目录" : "索引")}与 Git 状态…";
         try
         {
             var count = await Task.Run(tab.RebuildIndex);
             tab.Refresh();
-            GlobalStatus = $"{tab.Title}：已刷新，索引包含 {count} 个文件。";
+            GlobalStatus = tab.IsLocal
+                ? $"{tab.Title}：目录已刷新，当前显示 {count} 项。"
+                : $"{tab.Title}：已刷新，索引包含 {count} 个文件。";
         }
         catch (Exception ex) { _dialogs.Info($"刷新失败：{ex.Message}"); GlobalStatus = "刷新失败"; }
         finally { IsBusy = false; }
@@ -414,18 +496,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void AddFavorite()
     {
         if (SelectedTab is not { } tab) return;
-        var workspace = tab.Workspace;
-        if (!workspace.Favorites.Contains(tab.CurrentPath)) workspace.Favorites.Add(tab.CurrentPath);
+        if (!_configuration.FavoriteFolders.Contains(tab.CurrentPath)) _configuration.FavoriteFolders.Add(tab.CurrentPath);
         SaveConfiguration();
         UpdateFavorites();
-        GlobalStatus = "已加入本地编目收藏。";
+        GlobalStatus = "已收藏当前目录。";
     }
 
     private void OpenFavorite(string? path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return;
         var mount = _configuration.Workspaces.SelectMany(x => x.Mounts).FirstOrDefault(x => path.StartsWith(x.Path, StringComparison.OrdinalIgnoreCase));
-        if (mount is null) return;
+        if (mount is null) { OpenLocal(path); return; }
         var workspace = _configuration.Workspaces.First(x => x.Mounts.Contains(mount));
         OpenMount(workspace, mount);
         SelectedTab?.Navigate(path);
@@ -434,14 +515,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void UpdateFavorites()
     {
         Favorites.Clear();
-        var workspace = SelectedNode?.Workspace ?? SelectedTab?.Workspace ?? _configuration.Workspaces.FirstOrDefault();
-        if (workspace is null) return;
-        foreach (var favorite in workspace.Favorites) Favorites.Add(favorite);
+        foreach (var favorite in _configuration.FavoriteFolders) Favorites.Add(favorite);
     }
 
     private void ExportCatalog()
     {
-        var workspace = SelectedNode?.Workspace ?? SelectedTab?.Workspace;
+        var workspace = SelectedNode?.Workspace ?? (SelectedTab?.IsLocal == false ? SelectedTab.Workspace : null);
         if (workspace is null) return;
         var count = 0;
         foreach (var mount in workspace.Mounts.Where(x => Directory.Exists(x.Path)))

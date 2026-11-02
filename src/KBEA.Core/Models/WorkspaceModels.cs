@@ -8,6 +8,7 @@ public sealed class AppConfiguration
     public string RsyncExecutable { get; set; } = "tools/rsync/rsync.exe";
     public string ArchiveRoot { get; set; } = string.Empty;
     public bool AutoDetect { get; set; } = true;
+    public List<string> FavoriteFolders { get; set; } = [];
     public List<WorkspaceDefinition> Workspaces { get; set; } = [];
 }
 
