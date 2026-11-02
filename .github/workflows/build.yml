@@ -84,6 +84,6 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem -Path release-package -File | ForEach-Object {
-            gh release upload $env:RELEASE_TAG $_.FullName --clobber
+            gh release upload $env:RELEASE_TAG $_.FullName --repo $env:GITHUB_REPOSITORY --clobber
             if ($LASTEXITCODE -ne 0) { throw "Release upload failed." }
           }
