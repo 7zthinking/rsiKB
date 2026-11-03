@@ -6,33 +6,72 @@ namespace KBEA.Core.Git;
 
 public sealed class GitService
 {
-    public bool IsRepository(string path) => Repository.IsValid(path);
+    public bool IsRepository(string path) => DiscoverRepositoryRoot(path) is not null;
+
+    public string? DiscoverRepositoryRoot(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        if (File.Exists(path)) path = Path.GetDirectoryName(path) ?? string.Empty;
+        if (!Directory.Exists(path)) return null;
+        try
+        {
+            var discovered = Repository.Discover(path);
+            if (string.IsNullOrWhiteSpace(discovered)) return null;
+            using var repository = new Repository(discovered);
+            var root = repository.Info.WorkingDirectory;
+            return string.IsNullOrWhiteSpace(root) ? null : Path.GetFullPath(root);
+        }
+        catch (LibGit2SharpException)
+        {
+            return null;
+        }
+    }
+
+    public string CloneRepository(string remoteUrl, string localPath)
+    {
+        if (string.IsNullOrWhiteSpace(remoteUrl)) throw new ArgumentException("远程仓库地址不能为空。", nameof(remoteUrl));
+        if (Directory.Exists(localPath) && Directory.EnumerateFileSystemEntries(localPath).Any())
+            throw new InvalidOperationException("克隆目录必须为空目录。");
+        var parent = Path.GetDirectoryName(Path.GetFullPath(localPath));
+        if (!string.IsNullOrWhiteSpace(parent)) Directory.CreateDirectory(parent);
+        Repository.Clone(remoteUrl, localPath);
+        return Path.GetFullPath(localPath);
+    }
 
     public GitStatusInfo BindRepository(string path, string remoteUrl)
     {
-        var metadata = new MetadataStore(path);
+        var root = DiscoverRepositoryRoot(path);
+        if (root is null)
+        {
+            Repository.Init(path);
+            root = Path.GetFullPath(path);
+        }
+        var metadata = new MetadataStore(root);
         metadata.Initialize();
-        if (!Repository.IsValid(path)) Repository.Init(path);
-        using var repository = new Repository(path);
-        EnsureMainBranch(repository);
-        SetRemote(repository, remoteUrl);
+        using (var repository = new Repository(root))
+        {
+            EnsureMainBranch(repository);
+            SetRemote(repository, remoteUrl);
+        }
         metadata.SetConfigValue("git.remote", remoteUrl);
-        return GetStatus(path);
+        return GetStatus(root);
     }
 
     public GitStatusInfo GetStatus(string path)
     {
-        if (!Repository.IsValid(path)) return new GitStatusInfo(false, 0, string.Empty, string.Empty, 0);
-        using var repository = new Repository(path);
+        var discovered = Directory.Exists(path) ? Repository.Discover(path) : null;
+        if (string.IsNullOrWhiteSpace(discovered)) return new GitStatusInfo(false, 0, string.Empty, string.Empty, 0);
+        using var repository = new Repository(discovered);
         var changes = repository.RetrieveStatus().Count(x => x.State != FileStatus.Unaltered && x.State != FileStatus.Ignored);
         return new GitStatusInfo(true, changes, repository.Head.FriendlyName,
-            repository.Network.Remotes["origin"]?.Url ?? string.Empty, repository.Index.Conflicts.Count());
+            repository.Network.Remotes["origin"]?.Url ?? repository.Network.Remotes.FirstOrDefault()?.Url ?? string.Empty, repository.Index.Conflicts.Count());
     }
 
     public IReadOnlyDictionary<string, string> GetFileStates(string path)
     {
-        if (!Repository.IsValid(path)) return new Dictionary<string, string>();
-        using var repository = new Repository(path);
+        var discovered = Directory.Exists(path) ? Repository.Discover(path) : null;
+        if (string.IsNullOrWhiteSpace(discovered)) return new Dictionary<string, string>();
+        using var repository = new Repository(discovered);
         return repository.RetrieveStatus()
             .Where(x => x.State != FileStatus.Unaltered && x.State != FileStatus.Ignored)
             .ToDictionary(x => x.FilePath.Replace('/', Path.DirectorySeparatorChar), x => FriendlyState(x.State), StringComparer.OrdinalIgnoreCase);
@@ -40,8 +79,9 @@ public sealed class GitService
 
     public IReadOnlyList<GitCommitInfo> GetHistory(string path, int limit = 50)
     {
-        if (!Repository.IsValid(path)) return [];
-        using var repository = new Repository(path);
+        var discovered = Directory.Exists(path) ? Repository.Discover(path) : null;
+        if (string.IsNullOrWhiteSpace(discovered)) return [];
+        using var repository = new Repository(discovered);
         return repository.Commits.Take(limit).Select(x => new GitCommitInfo(x.Id.Sha[..Math.Min(8, x.Id.Sha.Length)], x.MessageShort, x.Author.Name, x.Author.When)).ToArray();
     }
 
@@ -59,7 +99,7 @@ public sealed class GitService
             committed = true;
         }
         var remote = repository.Network.Remotes["origin"];
-        if (remote is null) return committed ? "已保存到本地仓库；绑定远程后可上传。" : "没有需要保存的变更。";
+        if (remote is null) return committed ? "已保存到本地仓库；配置远程后可上传。" : "没有需要保存的变更。";
         if (!repository.Commits.Any()) return "尚无提交，未执行上传。";
         var branch = repository.Head;
         repository.Network.Push(remote, $"{branch.CanonicalName}:{branch.CanonicalName}");
@@ -70,7 +110,7 @@ public sealed class GitService
     public string Pull(string path, string authorName, string authorEmail)
     {
         using var repository = OpenRepository(path);
-        var remote = repository.Network.Remotes["origin"] ?? throw new InvalidOperationException("当前文件夹尚未绑定远程仓库。");
+        var remote = repository.Network.Remotes["origin"] ?? throw new InvalidOperationException("当前仓库尚未配置 origin 远程地址。");
         if (!repository.Commits.Any()) throw new InvalidOperationException("请先保存一个本地提交，再拉取更新。");
         var branch = repository.Head;
         repository.Branches.Update(branch, updater => { updater.Remote = remote.Name; updater.UpstreamBranch = branch.CanonicalName; });
@@ -81,24 +121,29 @@ public sealed class GitService
 
     public IReadOnlyList<string> GetConflicts(string path)
     {
-        if (!Repository.IsValid(path)) return [];
-        using var repository = new Repository(path);
+        var discovered = Directory.Exists(path) ? Repository.Discover(path) : null;
+        if (string.IsNullOrWhiteSpace(discovered)) return [];
+        using var repository = new Repository(discovered);
         return repository.Index.Conflicts.Select(x => x.Ancestor?.Path ?? x.Ours?.Path ?? x.Theirs?.Path ?? string.Empty).Where(x => x.Length > 0).Distinct().ToArray();
     }
 
     public void ResolveConflict(string path, string relativePath, string resolvedText, string authorName, string authorEmail)
     {
-        var fullPath = Path.Combine(path, relativePath);
-        File.WriteAllText(fullPath, resolvedText);
-        using var repository = OpenRepository(path);
+        var root = DiscoverRepositoryRoot(path) ?? throw new InvalidOperationException("当前目录不在 Git 仓库中。");
+        File.WriteAllText(Path.Combine(root, relativePath), resolvedText);
+        using var repository = OpenRepository(root);
         Commands.Stage(repository, relativePath);
         var signature = new Signature(authorName, authorEmail, DateTimeOffset.Now);
         repository.Commit($"解决冲突：{relativePath}", signature, signature);
     }
 
-    private static Repository OpenRepository(string path) => Repository.IsValid(path)
-        ? new Repository(path)
-        : throw new InvalidOperationException("当前文件夹尚未启用 Git。请先完成 Git 绑定。");
+    private static Repository OpenRepository(string path)
+    {
+        var discovered = Directory.Exists(path) ? Repository.Discover(path) : null;
+        return !string.IsNullOrWhiteSpace(discovered)
+            ? new Repository(discovered)
+            : throw new InvalidOperationException("当前目录不在 Git 仓库中。");
+    }
 
     private static void EnsureMainBranch(Repository repository)
     {

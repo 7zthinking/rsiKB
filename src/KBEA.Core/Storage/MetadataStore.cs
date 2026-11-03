@@ -25,6 +25,8 @@ public sealed class MetadataStore
     public void Initialize()
     {
         Directory.CreateDirectory(_mountPath);
+        var metadataDirectory = Directory.CreateDirectory(MetadataPath);
+        if (OperatingSystem.IsWindows()) metadataDirectory.Attributes |= FileAttributes.Hidden;
         foreach (var directory in new[] { "index", "catalog", "lock", "assistant" })
             Directory.CreateDirectory(Path.Combine(MetadataPath, directory));
         EnsureGitIgnore(_mountPath);
@@ -34,12 +36,12 @@ public sealed class MetadataStore
             PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS catalog_links (
                 Id TEXT PRIMARY KEY,
-                WorkspaceId TEXT NOT NULL,
-                CategoryId TEXT NOT NULL,
+                SpaceId TEXT NOT NULL,
+                DirectoryId TEXT NOT NULL,
                 RelativePath TEXT NOT NULL,
                 FileHash TEXT NOT NULL,
                 CreatedAt TEXT NOT NULL,
-                UNIQUE(WorkspaceId, CategoryId, RelativePath)
+                UNIQUE(SpaceId, DirectoryId, RelativePath)
             );
             CREATE TABLE IF NOT EXISTS file_index (
                 RelativePath TEXT PRIMARY KEY,
@@ -51,7 +53,7 @@ public sealed class MetadataStore
             CREATE VIRTUAL TABLE IF NOT EXISTS file_fts USING fts5(RelativePath UNINDEXED, Name, Extension);
             CREATE TABLE IF NOT EXISTS archive_nodes (
                 Id TEXT PRIMARY KEY,
-                MountName TEXT NOT NULL,
+                SpaceName TEXT NOT NULL,
                 NodeName TEXT NOT NULL,
                 Destination TEXT NOT NULL,
                 Note TEXT NOT NULL,
@@ -73,46 +75,46 @@ public sealed class MetadataStore
         command.ExecuteNonQuery();
     }
 
-    public void AddLink(Guid workspaceId, Guid categoryId, string relativePath)
+    public void AddLink(Guid spaceId, Guid directoryId, string relativePath)
     {
         var normalized = NormalizeRelativePath(relativePath);
         var hash = ComputeHash(Path.Combine(_mountPath, normalized));
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO catalog_links (Id, WorkspaceId, CategoryId, RelativePath, FileHash, CreatedAt)
-            VALUES ($id, $workspace, $category, $path, $hash, $created)
-            ON CONFLICT(WorkspaceId, CategoryId, RelativePath) DO UPDATE SET FileHash = excluded.FileHash;
+            INSERT INTO catalog_links (Id, SpaceId, DirectoryId, RelativePath, FileHash, CreatedAt)
+            VALUES ($id, $space, $directory, $path, $hash, $created)
+            ON CONFLICT(SpaceId, DirectoryId, RelativePath) DO UPDATE SET FileHash = excluded.FileHash;
             """;
         command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString());
-        command.Parameters.AddWithValue("$workspace", workspaceId.ToString());
-        command.Parameters.AddWithValue("$category", categoryId.ToString());
+        command.Parameters.AddWithValue("$space", spaceId.ToString());
+        command.Parameters.AddWithValue("$directory", directoryId.ToString());
         command.Parameters.AddWithValue("$path", normalized);
         command.Parameters.AddWithValue("$hash", hash);
         command.Parameters.AddWithValue("$created", DateTimeOffset.Now.ToString("O"));
         command.ExecuteNonQuery();
     }
 
-    public void RemoveLink(Guid workspaceId, Guid categoryId, string relativePath)
+    public void RemoveLink(Guid spaceId, Guid directoryId, string relativePath)
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM catalog_links WHERE WorkspaceId=$workspace AND CategoryId=$category AND RelativePath=$path;";
-        command.Parameters.AddWithValue("$workspace", workspaceId.ToString());
-        command.Parameters.AddWithValue("$category", categoryId.ToString());
+        command.CommandText = "DELETE FROM catalog_links WHERE SpaceId=$space AND DirectoryId=$directory AND RelativePath=$path;";
+        command.Parameters.AddWithValue("$space", spaceId.ToString());
+        command.Parameters.AddWithValue("$directory", directoryId.ToString());
         command.Parameters.AddWithValue("$path", NormalizeRelativePath(relativePath));
         command.ExecuteNonQuery();
     }
 
-    public IReadOnlyList<CatalogLink> GetLinks(Guid workspaceId, Guid? categoryId = null)
+    public IReadOnlyList<CatalogLink> GetLinks(Guid spaceId, Guid? directoryId = null)
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = categoryId.HasValue
-            ? "SELECT Id,WorkspaceId,CategoryId,RelativePath,FileHash,CreatedAt FROM catalog_links WHERE WorkspaceId=$workspace AND CategoryId=$category ORDER BY RelativePath;"
-            : "SELECT Id,WorkspaceId,CategoryId,RelativePath,FileHash,CreatedAt FROM catalog_links WHERE WorkspaceId=$workspace ORDER BY RelativePath;";
-        command.Parameters.AddWithValue("$workspace", workspaceId.ToString());
-        if (categoryId.HasValue) command.Parameters.AddWithValue("$category", categoryId.Value.ToString());
+        command.CommandText = directoryId.HasValue
+            ? "SELECT Id,SpaceId,DirectoryId,RelativePath,FileHash,CreatedAt FROM catalog_links WHERE SpaceId=$space AND DirectoryId=$directory ORDER BY RelativePath;"
+            : "SELECT Id,SpaceId,DirectoryId,RelativePath,FileHash,CreatedAt FROM catalog_links WHERE SpaceId=$space ORDER BY RelativePath;";
+        command.Parameters.AddWithValue("$space", spaceId.ToString());
+        if (directoryId.HasValue) command.Parameters.AddWithValue("$directory", directoryId.Value.ToString());
         using var reader = command.ExecuteReader();
         var result = new List<CatalogLink>();
         while (reader.Read())
@@ -124,12 +126,12 @@ public sealed class MetadataStore
         return result;
     }
 
-    public IReadOnlyList<Guid> GetCategoryIds(Guid workspaceId, string relativePath)
+    public IReadOnlyList<Guid> GetDirectoryIds(Guid spaceId, string relativePath)
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT CategoryId FROM catalog_links WHERE WorkspaceId=$workspace AND RelativePath=$path;";
-        command.Parameters.AddWithValue("$workspace", workspaceId.ToString());
+        command.CommandText = "SELECT DirectoryId FROM catalog_links WHERE SpaceId=$space AND RelativePath=$path;";
+        command.Parameters.AddWithValue("$space", spaceId.ToString());
         command.Parameters.AddWithValue("$path", NormalizeRelativePath(relativePath));
         using var reader = command.ExecuteReader();
         var result = new List<Guid>();
@@ -200,12 +202,12 @@ public sealed class MetadataStore
         return result;
     }
 
-    public string ExportCatalogSnapshot(WorkspaceDefinition workspace)
+    public string ExportCatalogSnapshot(SpaceDefinition space, IReadOnlyList<DirectoryDefinition> directories)
     {
         var directory = Path.Combine(MetadataPath, "catalog");
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, $"{workspace.Id}.json");
-        var snapshot = new CatalogSnapshot(workspace.Categories, GetLinks(workspace.Id));
+        var path = Path.Combine(directory, $"{space.Id}.json");
+        var snapshot = new CatalogSnapshot(directories, GetLinks(space.Id));
         File.WriteAllText(path, JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true }));
         return path;
     }
@@ -214,9 +216,9 @@ public sealed class MetadataStore
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO archive_nodes (Id,MountName,NodeName,Destination,Note,CreatedAt,Status) VALUES ($id,$mount,$node,$destination,$note,$created,$status);";
+        command.CommandText = "INSERT INTO archive_nodes (Id,SpaceName,NodeName,Destination,Note,CreatedAt,Status) VALUES ($id,$space,$node,$destination,$note,$created,$status);";
         command.Parameters.AddWithValue("$id", record.Id);
-        command.Parameters.AddWithValue("$mount", record.MountName);
+        command.Parameters.AddWithValue("$space", record.SpaceName);
         command.Parameters.AddWithValue("$node", record.NodeName);
         command.Parameters.AddWithValue("$destination", record.Destination);
         command.Parameters.AddWithValue("$note", record.Note);
@@ -229,7 +231,7 @@ public sealed class MetadataStore
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id,MountName,NodeName,Destination,Note,CreatedAt,Status FROM archive_nodes ORDER BY CreatedAt DESC LIMIT $limit;";
+        command.CommandText = "SELECT Id,SpaceName,NodeName,Destination,Note,CreatedAt,Status FROM archive_nodes ORDER BY CreatedAt DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", limit);
         using var reader = command.ExecuteReader();
         var result = new List<ArchiveRecord>();
@@ -325,5 +327,5 @@ public sealed class MetadataStore
         return Convert.ToHexString(SHA256.HashData(stream));
     }
 
-    private sealed record CatalogSnapshot(List<CategoryNode> Categories, IReadOnlyList<CatalogLink> Links);
+    private sealed record CatalogSnapshot(IReadOnlyList<DirectoryDefinition> Directories, IReadOnlyList<CatalogLink> Links);
 }

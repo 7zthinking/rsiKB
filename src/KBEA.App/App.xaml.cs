@@ -34,6 +34,9 @@ public partial class App : Application
         var window = _services.GetRequiredService<MainWindow>();
         MainWindow = window;
         window.Show();
+        var openIndex = Array.IndexOf(e.Args, "--open");
+        if (openIndex >= 0 && openIndex + 1 < e.Args.Length && Directory.Exists(e.Args[openIndex + 1]))
+            viewModel.OpenLocal(e.Args[openIndex + 1]);
     }
 
     protected override void OnExit(ExitEventArgs e)

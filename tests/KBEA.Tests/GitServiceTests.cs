@@ -23,6 +23,22 @@ public sealed class GitServiceTests
     }
 
     [Fact]
+    public void NestedDirectory_UsesContainingRepository()
+    {
+        using var directory = new TestDirectory();
+        var mount = directory.SubDirectory("mount");
+        var nested = directory.SubDirectory(Path.Combine("mount", "docs", "nested"));
+        var service = new GitService();
+        service.BindRepository(mount, string.Empty);
+        File.WriteAllText(Path.Combine(nested, "note.txt"), "nested");
+
+        Assert.True(service.GetStatus(nested).IsRepository);
+        Assert.Equal(Path.TrimEndingDirectorySeparator(mount), Path.TrimEndingDirectorySeparator(service.DiscoverRepositoryRoot(nested)!));
+        service.SaveAndPush(nested, "nested commit", "Tester", "tester@example.com");
+        Assert.Equal("nested commit", Assert.Single(service.GetHistory(mount)).Message);
+    }
+
+    [Fact]
     public void RemoteRepository_PushAndPullRoundTripWorks()
     {
         using var directory = new TestDirectory();

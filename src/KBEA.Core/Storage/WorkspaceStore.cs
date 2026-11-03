@@ -33,11 +33,7 @@ public sealed class WorkspaceStore
             {
                 var json = File.ReadAllText(ConfigPath);
                 var configuration = JsonSerializer.Deserialize<AppConfiguration>(json, _jsonOptions) ?? new AppConfiguration();
-                configuration.Workspaces.RemoveAll(workspace =>
-                    workspace.Name == "默认工作空间" &&
-                    workspace.Mounts.Count == 0 &&
-                    workspace.Favorites.Count == 0 &&
-                    workspace.Categories.Select(x => x.Name).SequenceEqual(["项目", "专业", "阶段"]));
+                if (MigrateLegacy(configuration)) Save(configuration);
                 return configuration;
             }
             catch (JsonException)
@@ -49,6 +45,42 @@ public sealed class WorkspaceStore
                 return initial;
             }
         }
+    }
+
+    /// <summary>把旧的「空间装目录」结构迁移为「目录装空间」：每个旧挂载点变成一个空间，旧分类目录变成逻辑目录。</summary>
+    private static bool MigrateLegacy(AppConfiguration configuration)
+    {
+        if (configuration.Workspaces.Count == 0) return false;
+
+        foreach (var legacy in configuration.Workspaces)
+        {
+            var directoryIds = new List<Guid>();
+            void AddLegacyCategory(CategoryNode category, Guid? parentId)
+            {
+                var directory = new DirectoryDefinition { Name = category.Name, ParentId = parentId };
+                configuration.Directories.Add(directory);
+                directoryIds.Add(directory.Id);
+                foreach (var child in category.Children) AddLegacyCategory(child, directory.Id);
+            }
+            foreach (var category in legacy.Categories) AddLegacyCategory(category, null);
+
+            for (var index = 0; index < legacy.Mounts.Count; index++)
+            {
+                var mount = legacy.Mounts[index];
+                configuration.Spaces.Add(new SpaceDefinition
+                {
+                    Name = string.IsNullOrWhiteSpace(mount.Name) ? Path.GetFileName(mount.Path) : mount.Name,
+                    Path = mount.Path,
+                    RemoteUrl = mount.RemoteUrl,
+                    AutoSync = mount.AutoSync,
+                    LastSyncAt = mount.LastSyncAt,
+                    DirectoryId = index < directoryIds.Count ? directoryIds[index] : null
+                });
+            }
+        }
+
+        configuration.Workspaces.Clear();
+        return true;
     }
 
     public void Save(AppConfiguration configuration)

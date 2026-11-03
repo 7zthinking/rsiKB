@@ -6,18 +6,18 @@ namespace KBEA.Core.Archive;
 
 public sealed class ArchiveService
 {
-    public async Task<ArchiveRecord> CreateAsync(MountDefinition mount, AppConfiguration configuration, string note, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+    public async Task<ArchiveRecord> CreateAsync(SpaceDefinition space, AppConfiguration configuration, string note, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
         var executable = ResolveExecutable(configuration.RsyncExecutable);
         if (!File.Exists(executable)) throw new FileNotFoundException("未找到 rsync.exe。请在设置中指定便携版 rsync 路径。", executable);
         if (string.IsNullOrWhiteSpace(configuration.ArchiveRoot)) throw new InvalidOperationException("请先在设置中配置归档根目录。");
-        if (!Directory.Exists(mount.Path)) throw new DirectoryNotFoundException("挂载文件夹当前离线，无法归档。");
+        if (!Directory.Exists(space.Path)) throw new DirectoryNotFoundException("空间当前离线，无法归档。");
 
         var node = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        var project = string.Concat(mount.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+        var project = string.Concat(space.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
         var current = CombineArchive(configuration.ArchiveRoot, project, "current");
         var backup = CombineArchive(configuration.ArchiveRoot, project, node);
-        var source = Path.GetFullPath(mount.Path).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var source = Path.GetFullPath(space.Path).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var startInfo = new ProcessStartInfo
         {
             FileName = executable,
@@ -44,8 +44,8 @@ public sealed class ArchiveService
             throw new TimeoutException("rsync 归档已取消或超过 2 小时时限。");
         }
         if (process.ExitCode != 0) throw new InvalidOperationException($"rsync 归档失败，退出代码 {process.ExitCode}。");
-        var record = new ArchiveRecord(Guid.NewGuid().ToString("N"), mount.Name, node, current, note, DateTimeOffset.Now, "完成");
-        new MetadataStore(mount.Path).RecordArchive(record);
+        var record = new ArchiveRecord(Guid.NewGuid().ToString("N"), space.Name, node, current, note, DateTimeOffset.Now, "完成");
+        new MetadataStore(space.Path).RecordArchive(record);
         progress?.Report("关键节点归档完成。");
         return record;
     }

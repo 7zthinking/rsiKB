@@ -15,8 +15,8 @@ public static class ThemeService
         Set("TextBrush", dark ? "#FFF1F4F8" : "#FF1D2733");
         Set("SecondaryTextBrush", dark ? "#FF9AA7B7" : "#FF667585");
         Set("BorderBrush", dark ? "#FF343E4C" : "#FFDDE3EA");
-        Set("AccentBrush", dark ? "#FF67A6FF" : "#FF2563EB");
-        Set("AccentSoftBrush", dark ? "#FF203B5A" : "#FFE7F0FF");
+        Set("AccentBrush", dark ? "#FFFF9B55" : "#FFE87924");
+        Set("AccentSoftBrush", dark ? "#FF4B3020" : "#FFFFE8D6");
         Set("HoverBrush", dark ? "#FF2B3542" : "#FFF0F4F9");
         Set("SuccessBrush", dark ? "#FF57C98B" : "#FF14804A");
         Set("WarningBrush", dark ? "#FFFFC766" : "#FFB54708");

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace KBEA.Core.Models;
 
 public sealed class AppConfiguration
@@ -9,9 +11,40 @@ public sealed class AppConfiguration
     public string ArchiveRoot { get; set; } = string.Empty;
     public bool AutoDetect { get; set; } = true;
     public List<string> FavoriteFolders { get; set; } = [];
+    public List<string> RecentLocalFolders { get; set; } = [];
+    public List<RemoteLocationDefinition> RemoteLocations { get; set; } = [];
+    public List<SpaceDefinition> Spaces { get; set; } = [];
+    public List<DirectoryDefinition> Directories { get; set; } = [];
+
+    /// <summary>旧结构（空间装目录），仅用于一次性迁移；迁移完成后会被清空。</summary>
     public List<WorkspaceDefinition> Workspaces { get; set; } = [];
+
+    [JsonIgnore] public Dictionary<Guid, Guid> LegacyDirectoryIdMap { get; set; } = [];
 }
 
+/// <summary>空间：一个物理位置（本地文件夹、Git 仓库、rsync 目录或网络位置）。</summary>
+public sealed class SpaceDefinition
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "新空间";
+    public string Path { get; set; } = string.Empty;
+    public string RemoteUrl { get; set; } = string.Empty;
+    public RemoteLocationKind RemoteKind { get; set; } = RemoteLocationKind.Network;
+    public Guid? DirectoryId { get; set; }
+    public bool AutoSync { get; set; }
+    public DateTimeOffset? LastSyncAt { get; set; }
+    public bool IsRemote => !string.IsNullOrWhiteSpace(RemoteUrl);
+}
+
+/// <summary>目录：空间的逻辑分组，可嵌套。空间归属某个目录，未归属的显示在根层。</summary>
+public sealed class DirectoryDefinition
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "新目录";
+    public Guid? ParentId { get; set; }
+}
+
+/// <summary>旧结构，仅在迁移时读取。</summary>
 public sealed class WorkspaceDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -21,6 +54,7 @@ public sealed class WorkspaceDefinition
     public List<string> Favorites { get; set; } = [];
 }
 
+/// <summary>旧结构，仅在迁移时读取。</summary>
 public sealed class MountDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -31,6 +65,18 @@ public sealed class MountDefinition
     public DateTimeOffset? LastSyncAt { get; set; }
 }
 
+public enum RemoteLocationKind { Git, Rsync, Network }
+
+public sealed class RemoteLocationDefinition
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = string.Empty;
+    public RemoteLocationKind Kind { get; set; }
+    public string Address { get; set; } = string.Empty;
+    public string LocalPath { get; set; } = string.Empty;
+}
+
+/// <summary>旧结构，仅在迁移时读取。</summary>
 public sealed class CategoryNode
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -40,16 +86,16 @@ public sealed class CategoryNode
 
 public sealed record CatalogLink(
     Guid Id,
-    Guid WorkspaceId,
-    Guid CategoryId,
+    Guid SpaceId,
+    Guid DirectoryId,
     string RelativePath,
     string FileHash,
     DateTimeOffset CreatedAt);
 
 public sealed record CatalogResult(
-    Guid MountId,
-    string MountName,
-    string MountPath,
+    Guid SpaceId,
+    string SpaceName,
+    string SpacePath,
     string RelativePath,
     string FullPath,
     string FileHash);
@@ -77,12 +123,12 @@ public sealed record GitCommitInfo(string Id, string Message, string Author, Dat
 
 public sealed record GitStatusInfo(bool IsRepository, int ChangeCount, string Branch, string RemoteUrl, int ConflictCount)
 {
-    public string Display => !IsRepository ? "未绑定 Git" : ConflictCount > 0 ? $"{ConflictCount} 个冲突" : ChangeCount > 0 ? $"{ChangeCount} 项变更 · {Branch}" : $"已同步 · {Branch}";
+    public string Display => !IsRepository ? "当前目录不在 Git 仓库中" : ConflictCount > 0 ? $"{ConflictCount} 个冲突" : ChangeCount > 0 ? $"{ChangeCount} 项变更 · {Branch}" : $"已同步 · {Branch}";
 }
 
 public sealed record ArchiveRecord(
     string Id,
-    string MountName,
+    string SpaceName,
     string NodeName,
     string Destination,
     string Note,

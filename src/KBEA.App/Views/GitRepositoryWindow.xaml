@@ -1,0 +1,37 @@
+<Window x:Class="KBEA.App.Views.GitRepositoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Git 仓库" Width="620" Height="470" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <Grid Margin="26">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock x:Name="Heading" Text="Git 仓库信息" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock x:Name="Description" Text="仓库状态由当前文件夹实际检测，与已保存的远程位置无关。" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,7,0,20" />
+        </StackPanel>
+        <StackPanel Grid.Row="1">
+            <TextBlock Text="仓库目录" FontWeight="SemiBold" Margin="0,0,0,7" />
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBox x:Name="RepositoryPathBox" Padding="10,8" IsReadOnly="True" />
+                <Button x:Name="SelectRepositoryButton" Grid.Column="1" Content="选择目录" Margin="8,0,0,0" Click="SelectRepository_Click" />
+            </Grid>
+            <Border x:Name="RepositoryInfo" Background="{DynamicResource AccentSoftBrush}" CornerRadius="6" Padding="12" Margin="0,16,0,0">
+                <StackPanel>
+                    <TextBlock x:Name="BranchText" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ChangesText" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,5,0,0" />
+                </StackPanel>
+            </Border>
+            <TextBlock Text="远程仓库地址" FontWeight="SemiBold" Margin="0,18,0,7" />
+            <TextBox x:Name="RemoteUrlBox" Padding="10,8" IsReadOnly="True" />
+            <TextBlock x:Name="HintText" Text="如需变更远程连接，请先点击“修改仓库连接”。" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,8,0,0" />
+        </StackPanel>
+        <Grid Grid.Row="2" Margin="0,22,0,0">
+            <Button x:Name="EditConnectionButton" Content="修改仓库连接" HorizontalAlignment="Left" Click="EditConnection_Click" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="取消" Width="88" IsCancel="True" Margin="0,0,10,0" />
+                <Button x:Name="ConfirmButton" Content="确认关联" Width="104" Style="{StaticResource PrimaryButton}" Click="Confirm_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

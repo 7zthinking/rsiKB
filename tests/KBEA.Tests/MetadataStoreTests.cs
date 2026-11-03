@@ -47,6 +47,19 @@ public sealed class MetadataStoreTests
     }
 
     [Fact]
+    public void MetadataDirectory_IsHiddenOnWindows()
+    {
+        using var directory = new TestDirectory();
+        var mount = directory.SubDirectory("mount");
+        var store = new MetadataStore(mount);
+        store.Initialize();
+
+        Assert.True(Directory.Exists(store.MetadataPath));
+        if (OperatingSystem.IsWindows())
+            Assert.True((new DirectoryInfo(store.MetadataPath).Attributes & FileAttributes.Hidden) != 0);
+    }
+
+    [Fact]
     public void SnapshotAndArchive_AreStoredWithMountedFolder()
     {
         using var directory = new TestDirectory();
