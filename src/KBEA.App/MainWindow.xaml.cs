@@ -1,11 +1,20 @@
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 using KBEA.App.Services;
 using KBEA.App.ViewModels;
+using KBEA.Core.Models;
 
 namespace KBEA.App;
+
+/// <summary>工作空间 TreeView 拖拽放置区域：Before=目标前、Into=嵌套进去、After=目标后。</summary>
+internal enum DropTargetZone { Before, Into, After }
 
 public partial class MainWindow : Window
 {
@@ -21,10 +30,105 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         AssistantHost.MouseLeftButtonUp += (_, _) => viewModel.IsAssistantOpen = !viewModel.IsAssistantOpen;
         WindowChromeService.Attach(this);
+        // 最小宽度 = 屏幕 1/3
+        MinWidth = SystemParameters.PrimaryScreenWidth / 3.0;
         SizeChanged += OnWindowSizeChanged;
         MainTabs.SizeChanged += (_, _) => UpdateTabWidths();
         ViewModel.Tabs.CollectionChanged += (_, _) => UpdateTabWidths();
         Loaded += (_, _) => UpdateTabWidths();
+        ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+        // 用 PreviewKeyDown 隧道事件拦截文件操作快捷键...
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
+    }
+
+    /// <summary>侧栏切换时，清空 WorkspaceTree 的视觉选中高亮。</summary>
+    private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.SelectedNode) && ViewModel.SelectedNode is null)
+        {
+            // SelectedNode 被 VM 设为 null → TreeView 也要清掉视觉选中
+            ClearTreeViewSelection(WorkspaceTree);
+        }
+    }
+
+    private static void ClearTreeViewSelection(TreeView tree)
+    {
+        foreach (var item in tree.Items.OfType<object>())
+        {
+            if (tree.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem tvi)
+            {
+                tvi.IsSelected = false;
+                ClearTreeViewItemSelection(tvi);
+            }
+        }
+    }
+
+    private static void ClearTreeViewItemSelection(TreeViewItem parent)
+    {
+        foreach (var item in parent.Items.OfType<object>())
+        {
+            if (parent.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem tvi)
+            {
+                tvi.IsSelected = false;
+                ClearTreeViewItemSelection(tvi);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 判断当前焦点元素是否是"文本输入类控件"（TextBox / ComboBox / RichTextBox）。
+    /// 在这类控件里拦截 Ctrl+C/V/X 会破坏用户的文本编辑体验，所以放行给控件自己处理。
+    /// DataGridCell 里可能正处于编辑模式（IsEditing），也需要放行。
+    /// </summary>
+    private static bool FocusIsEditingControl(DependencyObject? focused)
+    {
+        if (focused is null) return false;
+        return focused is TextBox or ComboBox or RichTextBox;
+    }
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        var tab = ViewModel.SelectedTab;
+        if (tab is null) return;
+
+        var focused = Keyboard.FocusedElement as DependencyObject;
+        if (FocusIsEditingControl(focused)) return; // 文本输入时放行
+
+        var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        var alt = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt);
+
+        switch (e.Key)
+        {
+            case Key.C when ctrl && !shift && !alt:
+                if (tab.CopyCommand.CanExecute(null)) { tab.CopyCommand.Execute(null); e.Handled = true; }
+                break;
+            case Key.X when ctrl && !shift && !alt:
+                if (tab.CutCommand.CanExecute(null)) { tab.CutCommand.Execute(null); e.Handled = true; }
+                break;
+            case Key.V when ctrl && !shift && !alt:
+                if (tab.PasteCommand.CanExecute(null)) { tab.PasteCommand.Execute(null); e.Handled = true; }
+                break;
+            case Key.A when ctrl && !shift && !alt:
+                // Ctrl+A 让 DataGrid 默认处理全选行，但如果焦点不在 DataGrid 上就忽略
+                break;
+            case Key.Delete when !shift && !alt:
+                // Delete → 放回收站（默认）
+                if (tab.DeleteCommand.CanExecute(null)) { tab.DeleteCommand.Execute(null); e.Handled = true; }
+                break;
+            case Key.Delete when shift && !alt && !ctrl:
+                // Shift+Delete → 永久删除（跳过回收站），通过带参数的命令传递
+                if (tab.PermanentDeleteCommand.CanExecute(null)) { tab.PermanentDeleteCommand.Execute(null); e.Handled = true; }
+                break;
+            case Key.Delete when ctrl && !alt:
+                // Ctrl+Delete → 删除整个文件夹（如果选中是文件），WPF 标准行为；
+                // 如果选中是文件夹则直接删除，与普通 Delete 行为一致（都走回收站）
+                if (tab.DeleteCommand.CanExecute(null)) { tab.DeleteCommand.Execute(null); e.Handled = true; }
+                break;
+            case Key.F2 when !ctrl && !alt:
+                if (tab.RenameCommand.CanExecute(null)) { tab.RenameCommand.Execute(null); e.Handled = true; }
+                break;
+        }
     }
 
     private MainViewModel ViewModel => (MainViewModel)DataContext;
@@ -52,6 +156,73 @@ public partial class MainWindow : Window
         else if (width >= 1050)
         {
             _autoSidebarCollapsed = false;
+        }
+    }
+
+    private void ToolbarHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Dispatcher 延迟一帧，等按钮 ActualWidth 有值
+        Dispatcher.BeginInvoke(new Action(UpdateToolbarOverflow), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void UpdateToolbarOverflow()
+    {
+        if (ToolbarPanel is null || ToolbarHost is null || ToolbarOverflowButton is null || ToolbarOverflowPanel is null) return;
+
+        // 先假设所有主按钮都在可见区
+        ToolbarOverflowButton.Visibility = Visibility.Collapsed;
+        ToolbarOverflowPanel.Children.Clear();
+
+        var mainButtons = new List<Button>();
+        foreach (var child in ToolbarPanel.Children)
+        {
+            if (child is ToggleButton) continue;     // 跳过 OverflowButton
+            if (child is ItemsControl) continue;       // 跳过插件区
+            if (child is Button btn)
+            {
+                btn.Visibility = Visibility.Visible;
+                mainButtons.Add(btn);
+            }
+        }
+
+        if (mainButtons.Count == 0) return;
+
+        // 确保所有按钮至少被 Measure 一次
+        foreach (var btn in mainButtons)
+        {
+            if (btn.ActualWidth <= 0)
+                btn.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        }
+
+        // 用 ActualWidth（优先）或 DesiredSize.Width 累加
+        var totalWidth = mainButtons.Sum(b => b.ActualWidth > 0 ? b.ActualWidth : b.DesiredSize.Width);
+        var available = ToolbarHost.ActualWidth;
+        if (available <= 0 || totalWidth <= available + 2) return; // 留 2px 容差
+
+        // 需要溢出：从最后一个开始移到溢出面板，直到放得下
+        ToolbarOverflowButton.Visibility = Visibility.Visible;
+        var overflowBtnWidth = ToolbarOverflowButton.ActualWidth > 0 ? ToolbarOverflowButton.ActualWidth : 28;
+        var room = available - overflowBtnWidth - 2;
+
+        // 从后往前移，但至少保留第 1 个（收藏文件夹）在主区
+        for (int i = mainButtons.Count - 1; i >= 1 && totalWidth > room; i--)
+        {
+            var btn = mainButtons[i];
+            btn.Visibility = Visibility.Collapsed;
+            totalWidth -= (btn.ActualWidth > 0 ? btn.ActualWidth : btn.DesiredSize.Width);
+
+            var overflowBtn = new Button
+            {
+                Content = btn.Content,
+                Command = btn.Command,
+                CommandParameter = btn.CommandParameter,
+                ToolTip = btn.ToolTip,
+                Padding = new Thickness(8, 5, 8, 5),
+                Margin = new Thickness(2),
+                HorizontalContentAlignment = HorizontalAlignment.Left
+            };
+            overflowBtn.Style = btn.FindResource("ToolbarButton") as Style ?? overflowBtn.Style;
+            ToolbarOverflowPanel.Children.Insert(0, overflowBtn);
         }
     }
 
@@ -103,9 +274,10 @@ public partial class MainWindow : Window
     {
         var count = ViewModel.Tabs.Count;
         if (count == 0) return;
+        // TabControl 内含 ScrollViewer，用 MainTabs 自身宽度做约束
         var available = MainTabs.ActualWidth;
         if (available <= 0) return;
-        // 占位标签固定 36，其余标签均分剩余宽度，至少保留一个图标宽度。
+        // 占位标签固定 36，其余标签均分剩余宽度，最小一个 icon 宽度。
         var rest = Math.Max(available - 36, count * 44);
         var width = Math.Clamp(rest / count - 2, 44, 240);
         var compact = width < 64;
@@ -138,6 +310,58 @@ public partial class MainWindow : Window
     private void WorkspaceTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (e.NewValue is WorkspaceNodeViewModel node) ViewModel.SelectedNode = node;
+    }
+
+    private void WorkspaceTreeArea_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        // 只处理 ScrollViewer 内部但不在 TreeViewItem 上的点击 → 取消选中
+        if (e.OriginalSource is not DependencyObject source) return;
+        // 如果点在 TreeView 内部，让 TreeView 自己处理（不要取消）
+        var el = source as DependencyObject;
+        while (el is not null)
+        {
+            if (el is TreeViewItem) return; // 点在节点上，保留 TreeView 选中
+            if (el is TreeView) return;     // 点在 TreeView 自身（列表头空白），保留默认选中
+            el = VisualTreeHelper.GetParent(el);
+        }
+        // 到这里说明点在 ScrollViewer 的 Border/StackPanel 空白区
+        ClearWorkspaceTreeSelection();
+    }
+
+    private void WorkspaceTree_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        // 先记录拖拽起点（用于后续 PreviewMouseMove 判断）
+        if (e.OriginalSource is DependencyObject source)
+        {
+            _treeDragItem = FindParent<TreeViewItem>(source);
+            _treeDragNode = _treeDragItem?.DataContext as WorkspaceNodeViewModel;
+            _treeDragStart = e.GetPosition(WorkspaceTree);
+        }
+
+        // 再处理已选中节点的 toggle 取消选中行为
+        if (WorkspaceTree.SelectedItem is null) return;
+        var clickedItem = _treeDragItem;
+        if (clickedItem is null) return;
+        var clickedNode = _treeDragNode;
+        if (clickedNode is null) return;
+        // 如果点的就是已选中的那个节点（且不是点在节点内的按钮上）→ 取消选中
+        // 注意：不能吞掉节点内按钮（◈ 元数据、✎ 重命名）的点击，否则按钮永远收不到 Click
+        if (ReferenceEquals(clickedNode, WorkspaceTree.SelectedItem)
+            && (e.OriginalSource as DependencyObject) is not null
+            && FindParent<Button>(e.OriginalSource as DependencyObject) is null)
+        {
+            e.Handled = true;
+            clickedItem.IsSelected = false;
+            ViewModel.SelectedNode = null;
+        }
+    }
+
+    private void ClearWorkspaceTreeSelection()
+    {
+        if (WorkspaceTree.SelectedItem is null) { ViewModel.SelectedNode = null; return; }
+        var container = (TreeViewItem?)WorkspaceTree.ItemContainerGenerator.ContainerFromItem(WorkspaceTree.SelectedItem);
+        if (container is not null) container.IsSelected = false;
+        ViewModel.SelectedNode = null;
     }
 
     private void WorkspaceTree_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -212,6 +436,13 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void KnowledgeSearch_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        ViewModel.KnowledgeSearchCommand.Execute(null);
+        e.Handled = true;
+    }
+
     private void Files_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is not DependencyObject source || FindParent<DataGridRow>(source) is null || FindParent<DataGridColumnHeader>(source) is not null) return;
@@ -241,4 +472,305 @@ public partial class MainWindow : Window
         }
         return null;
     }
+
+    // === 内容面板 DataGrid 拖放 ===
+
+    private Point _filesDragStart;
+    private FileEntry? _filesDragSource;
+    private bool _isFilesDragging;
+
+    private void FilesDataGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _filesDragStart = e.GetPosition(FilesDataGrid);
+        _filesDragSource = null;
+        _isFilesDragging = false;
+        if (e.OriginalSource is not DependencyObject source) return;
+        var row = FindParent<DataGridRow>(source);
+        if (row?.Item is FileEntry file) _filesDragSource = file;
+    }
+
+    private void FilesDataGrid_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_isFilesDragging || e.LeftButton != MouseButtonState.Pressed || _filesDragSource is null) return;
+        var pos = e.GetPosition(FilesDataGrid);
+        if (Math.Abs(pos.X - _filesDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _filesDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        _isFilesDragging = true;
+        var paths = new List<string> { _filesDragSource.FullPath };
+        var data = new DataObject(DataFormats.FileDrop, paths.ToArray());
+        DragDrop.DoDragDrop(FilesDataGrid, data, DragDropEffects.Copy | DragDropEffects.Move);
+        _isFilesDragging = false;
+    }
+
+    private void FilesDataGrid_DragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.None; e.Handled = true; return; }
+        var targetTab = ViewModel.SelectedTab;
+        if (targetTab is null || targetTab.IsComputer || !System.IO.Directory.Exists(targetTab.CurrentPath))
+        {
+            e.Effects = DragDropEffects.None;
+        }
+        else
+        {
+            e.Effects = e.KeyStates.HasFlag(DragDropKeyStates.LeftMouseButton) && e.KeyStates.HasFlag(DragDropKeyStates.ControlKey)
+                ? DragDropEffects.Copy
+                : e.KeyStates.HasFlag(DragDropKeyStates.ShiftKey)
+                    ? DragDropEffects.Move
+                    : DragDropEffects.Copy;
+        }
+        e.Handled = true;
+    }
+
+    private void FilesDataGrid_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Handled = true; return; }
+        var targetTab = ViewModel.SelectedTab;
+        if (targetTab is null) { e.Handled = true; return; }
+        var dropped = (string[]?)e.Data.GetData(DataFormats.FileDrop);
+        if (dropped is null) { e.Handled = true; return; }
+        targetTab.HandleFilesDropped(dropped);
+        e.Handled = true;
+    }
+
+    // === 工作空间 TreeView 拖拽重排序 ===
+
+    private Point _treeDragStart;
+    private WorkspaceNodeViewModel? _treeDragNode;
+    private TreeViewItem? _treeDragItem;
+    private AdornerLayer? _treeAdornerLayer;
+    private InsertionLineAdorner? _insertionAdorner;
+    private HighlightAdorner? _highlightAdorner;
+    private DropTargetZone _currentDropZone;
+    private TreeViewItem? _currentDropTargetItem;
+
+    private void WorkspaceTree_PreviewMouseLeftButtonDown_Drag(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not DependencyObject source) return;
+        _treeDragItem = FindParent<TreeViewItem>(source);
+        if (_treeDragItem is null) { _treeDragNode = null; return; }
+        _treeDragNode = _treeDragItem.DataContext as WorkspaceNodeViewModel;
+        _treeDragStart = e.GetPosition(WorkspaceTree);
+    }
+
+    private void WorkspaceTree_PreviewMouseMove_Drag(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _treeDragNode is null) return;
+        var pos = e.GetPosition(WorkspaceTree);
+        if (Math.Abs(pos.X - _treeDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _treeDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        var sourceNode = _treeDragNode;
+        _treeDragNode = null;
+        _treeDragItem = null;
+        DragDrop.DoDragDrop(WorkspaceTree, sourceNode, DragDropEffects.Move);
+        ClearAllAdorners();
+    }
+
+    private void WorkspaceTree_DragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(typeof(WorkspaceNodeViewModel)))
+        {
+            e.Effects = DragDropEffects.None;
+            ClearAllAdorners();
+            e.Handled = true;
+            return;
+        }
+
+        var sourceNode = (WorkspaceNodeViewModel?)e.Data.GetData(typeof(WorkspaceNodeViewModel));
+
+        if (e.OriginalSource is not DependencyObject source || FindParent<TreeViewItem>(source) is not { } targetItem)
+        {
+            // 拖到 TreeView 空白区域 → 脱离空间
+            ClearAllAdorners();
+            _currentDropZone = DropTargetZone.Into;
+            _currentDropTargetItem = null;
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
+
+        var targetNode = targetItem.DataContext as WorkspaceNodeViewModel;
+        if (sourceNode is null || targetNode is null || ReferenceEquals(sourceNode, targetNode))
+        {
+            ClearAllAdorners();
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        if (IsDescendant(sourceNode, targetNode))
+        {
+            ClearAllAdorners();
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        // 热区检测：鼠标在 TreeViewItem 上的 Y 相对位置
+        var posInItem = e.GetPosition(targetItem);
+        var itemHeight = targetItem.ActualHeight > 0 ? targetItem.ActualHeight : 24;
+        var ratio = posInItem.Y / itemHeight;
+        var zone = ratio switch
+        {
+            < 0.25 => DropTargetZone.Before,
+            > 0.75 => DropTargetZone.After,
+            _ => DropTargetZone.Into
+        };
+
+        // 只有 Directory 可以"Into"嵌套；Space 只有 直接 Children.Add 模式
+        if (zone == DropTargetZone.Into && !CanAcceptChildren(targetNode))
+        {
+            zone = DropTargetZone.Before; // Space 目标不支持 Into，退化为 Before
+        }
+
+        _currentDropZone = zone;
+        _currentDropTargetItem = targetItem;
+        e.Effects = DragDropEffects.Move;
+
+        // 选择视觉：Into → 高亮整个目标；Before/After → 插入线
+        ClearAllAdorners();
+        if (zone == DropTargetZone.Into)
+            ShowHighlightAdorner(targetItem);
+        else
+            ShowInsertionAdorner(targetItem, sourceNode, zone);
+
+        e.Handled = true;
+    }
+
+    private void WorkspaceTree_Drop(object sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        ClearAllAdorners();
+        if (e.Data.GetData(typeof(WorkspaceNodeViewModel)) is not WorkspaceNodeViewModel sourceNode) return;
+
+        if (_currentDropTargetItem?.DataContext is not WorkspaceNodeViewModel targetNode || _currentDropTargetItem is null)
+        {
+            // 拖到空白区域 → 脱离空间
+            ViewModel.DetachWorkspaceNode(sourceNode);
+            return;
+        }
+
+        if (ReferenceEquals(sourceNode, targetNode) || IsDescendant(sourceNode, targetNode)) return;
+
+        ViewModel.ReorderWorkspaceNode(sourceNode, targetNode, _currentDropZone);
+    }
+
+    /// <summary>判断目标节点能否接受子节点（Directory 可以接受任何子，Space 只能接受 Directory 子）。</summary>
+    private static bool CanAcceptChildren(WorkspaceNodeViewModel target)
+    {
+        return target.IsDirectory || target.IsSpace;
+    }
+
+    private static bool IsDescendant(WorkspaceNodeViewModel ancestor, WorkspaceNodeViewModel candidate)
+    {
+        foreach (var child in ancestor.Children)
+        {
+            if (ReferenceEquals(child, candidate)) return true;
+            if (IsDescendant(child, candidate)) return true;
+        }
+        return false;
+    }
+
+    private void ShowInsertionAdorner(TreeViewItem targetItem, WorkspaceNodeViewModel sourceNode, DropTargetZone zone)
+    {
+        if (_treeAdornerLayer is null) _treeAdornerLayer = AdornerLayer.GetAdornerLayer(WorkspaceTree);
+        if (_treeAdornerLayer is null) return;
+
+        ClearAllAdorners();
+        _insertionAdorner = new InsertionLineAdorner(targetItem, sourceNode, zone);
+        _treeAdornerLayer.Add(_insertionAdorner);
+    }
+
+    private void ShowHighlightAdorner(TreeViewItem targetItem)
+    {
+        if (_treeAdornerLayer is null) _treeAdornerLayer = AdornerLayer.GetAdornerLayer(WorkspaceTree);
+        if (_treeAdornerLayer is null) return;
+
+        ClearAllAdorners();
+        _highlightAdorner = new HighlightAdorner(targetItem);
+        _treeAdornerLayer.Add(_highlightAdorner);
+    }
+
+    private void ClearAllAdorners()
+    {
+        if (_treeAdornerLayer is not null)
+        {
+            if (_insertionAdorner is not null) _treeAdornerLayer.Remove(_insertionAdorner);
+            if (_highlightAdorner is not null) _treeAdornerLayer.Remove(_highlightAdorner);
+        }
+        _insertionAdorner = null;
+        _highlightAdorner = null;
+    }
+}
+
+/// <summary>TreeView 拖拽重排序的插入位置指示线（Adorner）。支持 Before（顶部）和 After（底部）。</summary>
+internal sealed class InsertionLineAdorner : Adorner
+{
+    private readonly Pen _pen;
+    private readonly DropTargetZone _zone;
+
+    public InsertionLineAdorner(UIElement adornedElement, WorkspaceNodeViewModel sourceNode, DropTargetZone zone) : base(adornedElement)
+    {
+        _zone = zone;
+        _pen = new Pen(new SolidColorBrush(Color.FromRgb(0xE8, 0x79, 0x24)), 2);
+        _pen.Freeze();
+        IsHitTestVisible = false;
+    }
+
+    protected override void OnRender(DrawingContext dc)
+    {
+        if (AdornedElement is not FrameworkElement adorned) return;
+        var rect = new Rect(adorned.RenderSize);
+
+        // Before = 顶部线, After = 底部线
+        var y = _zone == DropTargetZone.After ? rect.Bottom - 1 : rect.Top + 1;
+        dc.DrawLine(_pen, new Point(rect.Left, y), new Point(rect.Right, y));
+
+        // 左右小三角
+        var triangle = new StreamGeometry();
+        using (var ctx = triangle.Open())
+        {
+            var tipY = y;
+            var flapY = _zone == DropTargetZone.After ? y - 4 : y + 4;
+            ctx.BeginFigure(new Point(rect.Left - 6, flapY), false, true);
+            ctx.LineTo(new Point(rect.Left - 6, tipY), true, false);
+            ctx.LineTo(new Point(rect.Left, tipY), true, false);
+            ctx.Close();
+        }
+        dc.DrawGeometry(_pen.Brush, _pen, triangle);
+    }
+
+    protected override Size MeasureOverride(Size constraint) => AdornedElement.DesiredSize;
+    protected override Size ArrangeOverride(Size finalSize) => finalSize;
+}
+
+/// <summary>TreeView 拖拽"放到目录内"的高亮指示（Adorner）。</summary>
+internal sealed class HighlightAdorner : Adorner
+{
+    private static readonly Brush FillBrush = new SolidColorBrush(Color.FromArgb((byte)0x30, (byte)0xE8, (byte)0x79, (byte)0x24));
+    private static readonly Pen BorderPen = new Pen(new SolidColorBrush(Color.FromRgb(0xE8, 0x79, 0x24)), 1.5);
+
+    static HighlightAdorner()
+    {
+        FillBrush.Freeze();
+        BorderPen.Freeze();
+    }
+
+    public HighlightAdorner(UIElement adornedElement) : base(adornedElement)
+    {
+        IsHitTestVisible = false;
+    }
+
+    protected override void OnRender(DrawingContext dc)
+    {
+        if (AdornedElement is not FrameworkElement adorned) return;
+        var rect = new Rect(adorned.RenderSize);
+        // 圆角矩形高亮背景 + 边框
+        var rounded = new RectangleGeometry(new Rect(rect.Left + 2, rect.Top + 1, rect.Width - 4, rect.Height - 2), 4, 4);
+        dc.DrawGeometry(FillBrush, BorderPen, rounded);
+    }
+
+    protected override Size MeasureOverride(Size constraint) => AdornedElement.DesiredSize;
+    protected override Size ArrangeOverride(Size finalSize) => finalSize;
 }

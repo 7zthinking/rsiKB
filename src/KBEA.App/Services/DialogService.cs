@@ -36,9 +36,9 @@ public sealed class DialogService : IDialogService
         return dialog.ShowDialog() == true;
     }
 
-    public SpaceDialogResult? ShowNewSpace()
+    public SpaceDialogResult? ShowNewSpace(Guid? preselectDirectoryId = null)
     {
-        var dialog = new SpaceWindow(git: _git, directories: _directories) { Owner = Application.Current.MainWindow };
+        var dialog = new SpaceWindow(git: _git, directories: _directories, preselectDirectoryId: preselectDirectoryId) { Owner = Application.Current.MainWindow };
         return dialog.ShowDialog() == true ? dialog.Value : null;
     }
 
@@ -60,9 +60,12 @@ public sealed class DialogService : IDialogService
         return dialog.ShowDialog() == true ? dialog.Value : null;
     }
 
-    public void ShowHistory(IEnumerable<GitCommitInfo> commits, string title)
+    public void ShowHistory(string title, string repositoryPath)
     {
-        var dialog = new RecordListWindow(title, commits) { Owner = Application.Current.MainWindow };
+        var status = _git.GetStatus(repositoryPath);
+        var entries = status.IsRepository ? _git.GetDetailedStatus(repositoryPath) : Array.Empty<KBEA.Core.Models.GitStatusEntry>();
+        var commits = status.IsRepository ? _git.GetHistory(repositoryPath) : Array.Empty<KBEA.Core.Models.GitCommitInfo>();
+        var dialog = new GitHistoryWindow(title, status, entries, commits) { Owner = Application.Current.MainWindow };
         dialog.ShowDialog();
     }
 
@@ -70,5 +73,34 @@ public sealed class DialogService : IDialogService
     {
         var dialog = new RecordListWindow(title, records) { Owner = Application.Current.MainWindow };
         dialog.ShowDialog();
+    }
+
+    public IGitProgress BeginGitOperation(string title, string subtitle)
+    {
+        var window = new GitOutputWindow(title, subtitle) { Owner = Application.Current.MainWindow };
+        window.Show();
+        var wrapper = new GitProgressWrapper(window);
+        return wrapper;
+    }
+
+    /// <summary>把 GitOutputWindow 封装成 IGitProgress。</summary>
+    private sealed class GitProgressWrapper(GitOutputWindow window) : IGitProgress
+    {
+        private readonly Progress<string> _inner = new(line => window.AppendLine(line));
+        private bool _disposed;
+
+        public void Report(string value) => ((IProgress<string>)_inner).Report(value);
+        public void Done(bool succeeded, string finalMessage)
+        {
+            if (_disposed) return;
+            window.SetResult(succeeded, finalMessage);
+        }
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            // 没调 Done 就 dispose，说明异常中断：给个收尾状态
+            window.SetResult(false, "操作被中止。");
+        }
     }
 }

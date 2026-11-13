@@ -11,6 +11,8 @@
     <Version>0.2.0</Version>
     <Description>知识库自进化助手开源版</Description>
     <SingleAssembly Condition="'$(SingleAssembly)' == ''">false</SingleAssembly>
+    <!-- Windows 任务栏 / 资源管理器 / Alt-Tab 图标 -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(SingleAssembly)' != 'true'">
@@ -18,7 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\logo-w.png" />
+    <Resource Include="Assets\logo.png" />
+    <None Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
   </ItemGroup>

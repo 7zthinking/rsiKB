@@ -4,7 +4,9 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SmokeMouse { [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra); public static void Click(int x, int y) { System.Windows.Forms.Cursor.Position = new System.Drawing.Point(x, y); mouse_event(2, 0, 0, 0, UIntPtr.Zero); mouse_event(4, 0, 0, 0, UIntPtr.Zero); } }' -ReferencedAssemblies System.Windows.Forms, System.Drawing
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SmokeMouse { [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra); [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra); [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); public static void Click(int x, int y) { System.Windows.Forms.Cursor.Position = new System.Drawing.Point(x, y); mouse_event(2, 0, 0, 0, UIntPtr.Zero); mouse_event(4, 0, 0, 0, UIntPtr.Zero); } public static void AltTap() { keybd_event(0x12, 0, 0, UIntPtr.Zero); System.Threading.Thread.Sleep(50); keybd_event(0x12, 0, 2, UIntPtr.Zero); } public static bool Activate(IntPtr hwnd) { for (int i = 0; i < 6; i++) { AltTap(); ShowWindow(hwnd, 3); SetForegroundWindow(hwnd); System.Threading.Thread.Sleep(300); if (GetForegroundWindow() == hwnd) return true; } return false; } }' -ReferencedAssemblies System.Windows.Forms, System.Drawing
+# UIA 报告物理像素；非 DPI 感知进程的绝对坐标点击会因缩放落错位置
+[SmokeMouse]::SetProcessDPIAware() | Out-Null
 
 $dotnetRoot = Join-Path $Root '.dotnet'
 $app = Join-Path $Root 'artifacts\KBEA-Light\KBEA.exe'
@@ -48,12 +50,17 @@ function Get-AppWindow {
 }
 
 function Get-Button([Windows.Automation.AutomationElement]$window, [string]$text) {
-    $elements = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-    $button = @($elements | Where-Object {
-        $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $_.Current.Name -like "*$text*"
-    }) | Select-Object -First 1
-    if ($null -eq $button) { throw "Button not found: $text" }
-    return $button
+    # UIA 树在点击/视图切换后有刷新延迟，重试几次避免 flaky
+    $button = $null
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        $elements = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+        $button = @($elements | Where-Object {
+            $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $_.Current.Name -like "*$text*"
+        }) | Select-Object -First 1
+        if ($null -ne $button) { return $button }
+        Start-Sleep -Milliseconds 400
+    }
+    throw "Button not found: $text"
 }
 
 function Get-GitButtons([Windows.Automation.AutomationElement]$window) {
@@ -67,15 +74,14 @@ function Get-GitButtons([Windows.Automation.AutomationElement]$window) {
 
 function Invoke-Button([Windows.Automation.AutomationElement]$window, [string]$text) {
     $button = Get-Button $window $text
-    $patterns = $button.GetSupportedPatterns()
-    if ($patterns -contains [Windows.Automation.InvokePattern]::Pattern) {
-        $pattern = $button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern)
-        $pattern.Invoke()
-    }
-    else {
-        $button.SetFocus()
-        [Windows.Forms.SendKeys]::SendWait(' ')
-    }
+    # 统一走真实鼠标点击：
+    # 1) 跨进程 Invoke 打开模态窗口后，UIA 树会残缺（COM 重入假象），后续枚举不可靠；
+    # 2) InvokePattern.Invoke 偶发不触发 Command；
+    # 3) ToggleButton 只有 TogglePattern，且 Toggle() 不触发 Click/Command。
+    # 真实鼠标点击是唯一与用户行为一致、最可靠的方式。
+    $null = [SmokeMouse]::Activate([IntPtr]$window.Current.NativeWindowHandle)
+    $rect = $button.Current.BoundingRectangle
+    [SmokeMouse]::Click([int]($rect.X + $rect.Width / 2), [int]($rect.Y + $rect.Height / 2))
     Start-Sleep -Milliseconds 500
 }
 
@@ -174,35 +180,58 @@ try {
     }
     Write-Output "PASS Git pull disabled in: $plain"
 
-    $remote = -join ([char[]](0x8FDC, 0x7A0B, 0x76EE, 0x5F55))
+    $remote = -join ([char[]](0x5171, 0x4EAB, 0x76EE, 0x5F55))
     $local = -join ([char[]](0x672C, 0x5730, 0x76EE, 0x5F55))
     $workspace = -join ([char[]](0x5DE5, 0x4F5C, 0x7A7A, 0x95F4))
-    $savedPrefix = -join ([char[]](0x5DF2, 0x4FDD, 0x5B58, 0x7684))
+    $addRemote = -join ([char[]](0x6DFB, 0x52A0, 0x8FDC, 0x7A0B, 0x4F4D, 0x7F6E))
     Invoke-Button $window $remote
     $elements = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
     $remoteText = @($elements | Where-Object {
-        $_.Current.Name.StartsWith($savedPrefix) -and -not $_.Current.IsOffscreen
+        $_.Current.Name -like "*$addRemote*" -and -not $_.Current.IsOffscreen
     }) | Select-Object -First 1
     if ($null -eq $remoteText) { throw 'Remote sidebar was not displayed.' }
     Write-Output 'PASS Remote sidebar is visible'
-
     Invoke-Button $window $local
-    Invoke-Button $window $workspace
+    # 连续 AltTap 前台切换后，最后一次 ToggleButton 点击偶发不触发 Command；
+    # 工具条（新建空间等）仅在 IsWorkspaceSidebar 时可见，以它为准验证并重试。
+    $newWorkspace = -join ([char[]](0x65B0, 0x5EFA, 0x7A7A, 0x95F4))
+    $workspaceReady = $false
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        try { $null = Get-Button $window $newWorkspace; $workspaceReady = $true; break }
+        catch { Invoke-Button $window $workspace; Start-Sleep -Milliseconds 600 }
+    }
+    if (-not $workspaceReady) { throw 'Workspace toolbar did not appear after selecting the workspace tab.' }
     Write-Output 'PASS All three sidebar sections can be selected'
 
-    $newWorkspace = -join ([char[]](0x65B0, 0x5EFA, 0x5DE5, 0x4F5C, 0x7A7A, 0x95F4))
-    $newWorkspaceTitle = -join ([char[]](0x65B0, 0x5EFA, 0x5DE5, 0x4F5C, 0x7A7A, 0x95F4))
-    $createWorkspace = -join ([char[]](0x65B0, 0x5EFA, 0x7A7A, 0x95F4))
-    Invoke-Button $window $newWorkspace
-    $dialog = Get-Dialog $newWorkspaceTitle
-    $dialogElements = $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
-    $selectFolder = -join ([char[]](0x9009, 0x62E9, 0x4E00, 0x4E2A, 0x6587, 0x4EF6, 0x5939, 0x4F4D, 0x7F6E))
+    $newWorkspaceTitle = -join ([char[]](0x65B0, 0x5EFA, 0x7A7A, 0x95F4))
+    $createWorkspace = -join ([char[]](0x521B, 0x5EFA, 0x7A7A, 0x95F4))
+    # InvokePattern.Invoke 偶发不触发 Command（与前台切换时序相关），重试直到对话框出现
+    $dialog = $null
+    for ($attempt = 0; $attempt -lt 3 -and $null -eq $dialog; $attempt++) {
+        Invoke-Button $window $newWorkspace
+        try { $dialog = Get-Dialog $newWorkspaceTitle } catch { Start-Sleep -Milliseconds 800; $dialog = $null }
+    }
+    if ($null -eq $dialog) { throw "Dialog not found: $newWorkspaceTitle" }
+    $selectFolder = -join ([char[]](0x9009, 0x62E9, 0x6587, 0x4EF6, 0x5939))
     $gitButton = -join ([char[]](0x5173, 0x8054, 0x20, 0x47, 0x69, 0x74, 0x20, 0x4ED3, 0x5E93))
+    $dialogElements = $null
+    # 模态对话框打开初期 UIA 内部树短暂残缺（COM 重入），重新获取引用并重试枚举
+    $dialogReady = $false
+    for ($attempt = 0; $attempt -lt 8; $attempt++) {
+        try {
+            $dialog = Get-Dialog $newWorkspaceTitle
+            $dialogElements = $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+            $null = Get-Button $dialog $selectFolder
+            $null = Get-Button $dialog $gitButton
+            $dialogReady = $true
+            break
+        }
+        catch { Start-Sleep -Milliseconds 700 }
+    }
+    if (-not $dialogReady) { throw 'Workspace dialog internals were not visible.' }
     if (@($dialogElements | Where-Object { $_.Current.ControlType -eq [Windows.Automation.ControlType]::RadioButton }).Count -ne 0) {
         throw 'Legacy workspace mount choices are still displayed.'
     }
-    $null = Get-Button $dialog $selectFolder
-    $null = Get-Button $dialog $gitButton
     Set-FirstEdit $dialog 'Smoke Space'
     if ((Get-Button $dialog $createWorkspace).Current.IsEnabled) { throw 'Create should be disabled before selecting a folder.' }
     Invoke-Button $dialog $cancel

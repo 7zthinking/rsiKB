@@ -13,13 +13,16 @@ public partial class SpaceWindow : Window
     private readonly string _originalName;
     private readonly GitService? _git;
     private readonly List<DirectoryDefinition> _directories;
+    private readonly Guid? _preselectDirectoryId;
+    private bool _gitAutoFilled; // 标记远程地址是否由 Git 自动填入（自动填入时锁死）
 
-    public SpaceWindow(string? existingName = null, GitService? git = null, List<DirectoryDefinition>? directories = null)
+    public SpaceWindow(string? existingName = null, GitService? git = null, List<DirectoryDefinition>? directories = null, Guid? preselectDirectoryId = null)
     {
         InitializeComponent();
         _originalName = existingName ?? string.Empty;
         _git = git;
         _directories = directories ?? [];
+        _preselectDirectoryId = preselectDirectoryId;
         NameBox.Text = _originalName;
         LoadDirectories();
         if (existingName is not null)
@@ -48,6 +51,12 @@ public partial class SpaceWindow : Window
         {
             var prefix = BuildPrefix(directory);
             DirectoryBox.Items.Add(new DirectoryOption(directory.Id, $"{prefix}{directory.Name}"));
+        }
+        // 预选目录
+        if (_preselectDirectoryId is { } id)
+        {
+            var match = DirectoryBox.Items.OfType<DirectoryOption>().FirstOrDefault(x => x.Id == id);
+            if (match is not null) { DirectoryBox.SelectedItem = match; return; }
         }
         DirectoryBox.SelectedIndex = 0;
     }
@@ -104,11 +113,22 @@ public partial class SpaceWindow : Window
             {
                 GitInfoText.Text = "当前位置尚未关联 Git 仓库。";
                 GitButton.Content = "关联 Git 仓库";
+                // 取消之前的自动填充
+                if (_gitAutoFilled) { RemoteUrlBox.Text = string.Empty; RemoteUrlBox.IsReadOnly = false; _gitAutoFilled = false; }
                 return;
             }
             var status = _git.GetStatus(root);
             GitInfoText.Text = $"已关联 Git：{root}\n分支 {status.Branch} · {(string.IsNullOrWhiteSpace(status.RemoteUrl) ? "未配置远程仓库" : status.RemoteUrl)}";
             GitButton.Content = "查看 Git 仓库信息";
+            // 自动填入远程地址并锁死
+            if (!string.IsNullOrWhiteSpace(status.RemoteUrl))
+            {
+                RemoteUrlBox.Text = status.RemoteUrl;
+                RemoteUrlBox.IsReadOnly = true;
+                RemoteKindBox.SelectedIndex = 0; // Git
+                _gitAutoFilled = true;
+                RemoteHintText.Text = "已检测到该位置的 Git 远程地址，自动填入且不可修改。如需更换，请先在 Git 仓库对话框中解绑。";
+            }
         }
         catch (Exception ex) { GitInfoText.Text = $"Git 状态读取失败：{ex.Message}"; }
     }
@@ -130,6 +150,20 @@ public partial class SpaceWindow : Window
                 FolderPathText.Text = dialog.Value.RepositoryPath;
                 GitInfoText.Text = $"Git 已关联：分支 {status.Branch} · {(string.IsNullOrWhiteSpace(status.RemoteUrl) ? "未配置远程仓库" : status.RemoteUrl)}";
                 GitButton.Content = "查看 Git 仓库信息";
+                // 解绑后取消自动填充锁定
+                if (string.IsNullOrWhiteSpace(status.RemoteUrl))
+                {
+                    RemoteUrlBox.Text = string.Empty;
+                    RemoteUrlBox.IsReadOnly = false;
+                    _gitAutoFilled = false;
+                }
+                else
+                {
+                    RemoteUrlBox.Text = status.RemoteUrl;
+                    RemoteUrlBox.IsReadOnly = true;
+                    RemoteKindBox.SelectedIndex = 0;
+                    _gitAutoFilled = true;
+                }
             }
             catch (Exception ex) { MessageBox.Show(this, $"Git 关联失败：{ex.Message}", "Git 仓库", MessageBoxButton.OK, MessageBoxImage.Warning); }
         }

@@ -15,12 +15,12 @@ public sealed class FileBrowserService
             {
                 if (IsHiddenMetadata(directory)) continue;
                 var info = new DirectoryInfo(directory);
-                result.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), true, 0, info.LastWriteTime));
+                result.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), true, 0, info.LastWriteTime, info.CreationTime));
             }
             foreach (var file in Directory.EnumerateFiles(path))
             {
                 var info = new FileInfo(file);
-                result.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), false, info.Length, info.LastWriteTime));
+                result.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), false, info.Length, info.LastWriteTime, info.CreationTime));
             }
         }
         catch (UnauthorizedAccessException) { }
@@ -48,14 +48,14 @@ public sealed class FileBrowserService
                     var info = new DirectoryInfo(directory);
                     if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
                     if (info.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
-                        results.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), true, 0, info.LastWriteTime));
+                        results.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), true, 0, info.LastWriteTime, info.CreationTime));
                     pending.Push(directory);
                 }
                 foreach (var file in Directory.EnumerateFiles(current))
                 {
                     var info = new FileInfo(file);
                     if (info.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
-                        results.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), false, info.Length, info.LastWriteTime));
+                        results.Add(new FileEntry(info.Name, info.FullName, Path.GetRelativePath(rootPath, info.FullName), false, info.Length, info.LastWriteTime, info.CreationTime));
                     if (results.Count >= maximumResults) break;
                 }
             }

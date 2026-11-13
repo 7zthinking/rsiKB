@@ -24,7 +24,7 @@ public sealed class MetadataStoreTests
         Assert.Equal(2, store.GetLinks(workspace).Count);
         Assert.Single(store.GetLinks(workspace, project));
         Assert.Single(store.GetLinks(workspace, acceptance));
-        Assert.Equal(2, store.GetCategoryIds(workspace, "report.md").Count);
+        Assert.Equal(2, store.GetLinks(workspace).Select(l => l.DirectoryId).Distinct().Count());
         Assert.False(string.IsNullOrWhiteSpace(store.GetLinks(workspace)[0].FileHash));
     }
 
@@ -66,11 +66,13 @@ public sealed class MetadataStoreTests
         var mount = directory.SubDirectory("mount");
         var store = new MetadataStore(mount);
         store.Initialize();
-        var workspace = new WorkspaceDefinition { Name = "空间A" };
-        var snapshot = store.ExportCatalogSnapshot(workspace);
+        var space = new SpaceDefinition { Name = "空间A" };
+        var directories = new List<DirectoryDefinition> { new() { Name = "项目A" } };
+        var snapshot = store.ExportCatalogSnapshot(space, directories);
         Assert.True(File.Exists(snapshot));
         using var json = JsonDocument.Parse(File.ReadAllText(snapshot));
-        Assert.True(json.RootElement.TryGetProperty("Categories", out _));
+        Assert.True(json.RootElement.TryGetProperty("Directories", out _));
+        Assert.True(json.RootElement.TryGetProperty("Links", out _));
 
         var record = new ArchiveRecord("1", "项目A", "20261030-180000", "D:/archive", "验收", DateTimeOffset.Now, "完成");
         store.RecordArchive(record);

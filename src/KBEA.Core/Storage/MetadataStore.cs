@@ -27,7 +27,7 @@ public sealed class MetadataStore
         Directory.CreateDirectory(_mountPath);
         var metadataDirectory = Directory.CreateDirectory(MetadataPath);
         if (OperatingSystem.IsWindows()) metadataDirectory.Attributes |= FileAttributes.Hidden;
-        foreach (var directory in new[] { "index", "catalog", "lock", "assistant" })
+        foreach (var directory in new[] { "catalog", "describe", "derived" })
             Directory.CreateDirectory(Path.Combine(MetadataPath, directory));
         EnsureGitIgnore(_mountPath);
         using var connection = OpenConnection();
@@ -274,12 +274,18 @@ public sealed class MetadataStore
     {
         var path = Path.Combine(mountPath, ".gitignore");
         var existing = File.Exists(path) ? File.ReadAllLines(path).ToList() : [];
-        var required = new[] { ".7z/", "*.tmp", "*.temp", "~$*", "Thumbs.db", "*.tif", "*.tiff", "*.gdb/", "*.shp", "*.shx", "*.dbf", "*.prj", "*.gpkg", "*.las", "*.laz" };
+        // .7z/ 下的机器索引与描述进 git（文本可合并），数据库与派生数据排除
+        var required = new[]
+        {
+            ".7z/meta.db", ".7z/meta.db-wal", ".7z/meta.db-shm", ".7z/derived/", ".7z/index/", ".7z/assistant/",
+            "*.tmp", "*.temp", "~$*", "Thumbs.db",
+            "*.tif", "*.tiff", "*.gdb/", "*.shp", "*.shx", "*.dbf", "*.prj", "*.gpkg", "*.las", "*.laz"
+        };
         var missing = required.Where(rule => !existing.Any(line => line.Trim().Equals(rule, StringComparison.OrdinalIgnoreCase))).ToArray();
         if (missing.Length == 0) return;
         using var writer = File.AppendText(path);
         if (existing.Count > 0) writer.WriteLine();
-        writer.WriteLine("# KBEA: metadata, temporary and spatial data files");
+        writer.WriteLine("# KBEA: metadata database, derived data, temporary and spatial data files");
         foreach (var rule in missing) writer.WriteLine(rule);
     }
 

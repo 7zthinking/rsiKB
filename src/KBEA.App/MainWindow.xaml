@@ -4,7 +4,7 @@
         xmlns:vm="clr-namespace:KBEA.App.ViewModels"
         xmlns:controls="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework"
         xmlns:helpers="clr-namespace:KBEA.App.Helpers"
-        Title="知识库自进化助手 · 开源版" Width="1440" Height="900" MinWidth="560" MinHeight="420"
+        Title="知识库自进化助手 · 开源版" Width="1440" Height="900" MinHeight="420"
         WindowStartupLocation="CenterScreen" WindowState="Maximized" WindowStyle="None"
         Background="Transparent" AllowsTransparency="False">
     <WindowChrome.WindowChrome>
@@ -25,22 +25,24 @@
         <Grid Background="{DynamicResource SidebarBackground}">
             <Grid.ColumnDefinitions><ColumnDefinition Width="276"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Margin="14,0,0,0">
-                <Image Source="Assets/logo-w.png" Width="30" Height="30" Stretch="Uniform" />
+                <Image Source="Assets/logo.png" Width="30" Height="30" Stretch="Uniform" />
                 <TextBlock Margin="9,0,0,0" Text="知识库自进化助手" FontSize="15" FontWeight="SemiBold" />
                 <TextBlock Margin="7,0,0,0" Text="{Binding Version}" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}" />
             </StackPanel>
-            <DockPanel Grid.Column="1" VerticalAlignment="Bottom" LastChildFill="True" WindowChrome.IsHitTestVisibleInChrome="True">
+            <DockPanel Grid.Column="1" VerticalAlignment="Bottom" LastChildFill="True">
                 <TabControl x:Name="MainTabs" ItemsSource="{Binding TabItems}" SelectedItem="{Binding SelectedTabItem, Mode=TwoWay}" Background="Transparent" BorderThickness="0" Margin="0" Height="44" VerticalAlignment="Bottom"
-                            AllowDrop="True" PreviewMouseLeftButtonDown="Tab_PreviewMouseLeftButtonDown" PreviewMouseMove="Tab_PreviewMouseMove" PreviewMouseWheel="Tabs_PreviewMouseWheel" SelectionChanged="Tabs_SelectionChanged" DragOver="Tab_DragOver" Drop="Tab_Drop">
-                    <TabControl.Template>
+                            AllowDrop="True" PreviewMouseLeftButtonDown="Tab_PreviewMouseLeftButtonDown" PreviewMouseMove="Tab_PreviewMouseMove" PreviewMouseWheel="Tabs_PreviewMouseWheel" SelectionChanged="Tabs_SelectionChanged" DragOver="Tab_DragOver" Drop="Tab_Drop">                    <TabControl.Template>
                         <ControlTemplate TargetType="TabControl">
                             <Border Background="Transparent">
-                                <TabPanel IsItemsHost="True" />
+                                <ScrollViewer x:Name="TabScroller" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" CanContentScroll="False">
+                                    <TabPanel IsItemsHost="True" />
+                                </ScrollViewer>
                             </Border>
                         </ControlTemplate>
                     </TabControl.Template>
                     <TabControl.ItemContainerStyle>
                         <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
+                            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
                                     <Setter Property="Width" Value="36" />
@@ -53,17 +55,18 @@
                         <DataTemplate>
                             <Grid VerticalAlignment="Center">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                <Grid.Style>
-                                    <Style TargetType="Grid">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Grid.Style>
-                                <Image Source="{Binding CurrentPath, Converter={StaticResource FileIconConverter}}" Width="18" Height="18" Margin="0,0,7,0" VerticalAlignment="Center" />
+                                <Image Source="{Binding CurrentPath, Converter={StaticResource FileIconConverter}}" Width="18" Height="18" Margin="0,0,7,0" VerticalAlignment="Center">
+                                    <Image.Style>
+                                        <Style TargetType="Image">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Image.Style>
+                                </Image>
                                 <TextBlock Grid.Column="1" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
@@ -116,7 +119,6 @@
                 </TabControl>
             </DockPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0" WindowChrome.IsHitTestVisibleInChrome="True">
-                <Button Style="{StaticResource IconButton}" Command="{Binding ToggleThemeCommand}" ToolTip="切换亮/暗主题" Content="◐" FontSize="18" />
                 <Button Style="{StaticResource IconButton}" Command="{Binding SettingsCommand}" ToolTip="账号与设置" Content="⚙" FontSize="17" />
                 <Border Width="1" Height="18" Background="{DynamicResource BorderBrush}" Margin="5,0" />
                 <Button Style="{StaticResource IconButton}" ToolTip="最小化" Content="—" Width="42" Click="Minimize_Click" />
@@ -127,33 +129,31 @@
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260">
-                    <ColumnDefinition.Style>
-                        <Style TargetType="ColumnDefinition">
-                            <Setter Property="Width" Value="260" />
-                            <Style.Triggers><DataTrigger Binding="{Binding IsSidebarVisible}" Value="False"><Setter Property="Width" Value="0" /></DataTrigger></Style.Triggers>
-                        </Style>
-                    </ColumnDefinition.Style>
-                </ColumnDefinition>
-                <ColumnDefinition Width="4">
-                    <ColumnDefinition.Style>
-                        <Style TargetType="ColumnDefinition">
-                            <Setter Property="Width" Value="4" />
-                            <Style.Triggers><DataTrigger Binding="{Binding IsSidebarVisible}" Value="False"><Setter Property="Width" Value="0" /></DataTrigger></Style.Triggers>
-                        </Style>
-                    </ColumnDefinition.Style>
-                </ColumnDefinition>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Background="{DynamicResource SidebarBackground}" Visibility="{Binding IsSidebarVisible, Converter={StaticResource BoolToVisibility}}">
+            <Border Background="{DynamicResource SidebarBackground}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Width" Value="260" />
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSidebarVisible}" Value="False">
+                                <Setter Property="Width" Value="0" />
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Grid>
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <Grid Margin="10,10,10,0">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                         <ToggleButton Content="工作空间" Command="{Binding ShowWorkspaceSidebarCommand}" IsChecked="{Binding IsWorkspaceSidebar, Mode=OneWay}" Style="{StaticResource SidebarTabButton}" Margin="0,0,3,0" />
                         <ToggleButton Grid.Column="1" Content="本地目录" Command="{Binding ShowLocalSidebarCommand}" IsChecked="{Binding IsLocalSidebar, Mode=OneWay}" Style="{StaticResource SidebarTabButton}" Margin="3,0" />
-                        <ToggleButton Grid.Column="2" Content="远程目录" Command="{Binding ShowRemoteSidebarCommand}" IsChecked="{Binding IsRemoteSidebar, Mode=OneWay}" Style="{StaticResource SidebarTabButton}" Margin="3,0,0,0" />
+                        <ToggleButton Grid.Column="2" Content="共享目录" Command="{Binding ShowRemoteSidebarCommand}" IsChecked="{Binding IsRemoteSidebar, Mode=OneWay}" Style="{StaticResource SidebarTabButton}" Margin="3,0,0,0" />
                     </Grid>
                     <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,4" Margin="10,4,10,4" Visibility="{Binding IsWorkspaceSidebar, Converter={StaticResource BoolToVisibility}}">
                         <Grid>
@@ -165,21 +165,25 @@
                     </Border>
                     <Grid Grid.Row="2" Visibility="{Binding IsWorkspaceSidebar, Converter={StaticResource BoolToVisibility}}">
                         <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <ScrollViewer helpers:SmoothScroll.Enabled="True" VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer helpers:SmoothScroll.Enabled="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PreviewMouseLeftButtonDown="WorkspaceTreeArea_PreviewMouseLeftButtonDown">
                             <StackPanel Margin="8,0,8,8">
-                                <TreeView x:Name="WorkspaceTree" ItemsSource="{Binding Workspaces}" SelectedItemChanged="WorkspaceTree_SelectedItemChanged" MouseDoubleClick="WorkspaceTree_MouseDoubleClick">
+                                <TreeView x:Name="WorkspaceTree" ItemsSource="{Binding Workspaces}" SelectedItemChanged="WorkspaceTree_SelectedItemChanged" AllowDrop="True"
+                                          PreviewMouseLeftButtonDown="WorkspaceTree_PreviewMouseLeftButtonDown" PreviewMouseMove="WorkspaceTree_PreviewMouseMove_Drag"
+                                          DragOver="WorkspaceTree_DragOver" Drop="WorkspaceTree_Drop" MouseDoubleClick="WorkspaceTree_MouseDoubleClick">
                                     <TreeView.ItemTemplate>
                                         <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                                             <Grid MinWidth="175">
-                                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                                 <TextBlock Text="{Binding Icon}" Width="24" FontSize="17" Foreground="{DynamicResource AccentBrush}" />
                                                 <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                                 <Border Grid.Column="2" Background="{DynamicResource WarningBrush}" CornerRadius="3" Padding="4,0" Margin="6,0,0,0" Visibility="{Binding Badge, Converter={StaticResource StringToVisibility}}">
                                                     <TextBlock Text="{Binding Badge}" Foreground="White" FontSize="9" />
                                                 </Border>
-                                                <Button Grid.Column="3" Content="✎" Style="{StaticResource IconButton}" FontSize="15" Padding="3,0" Margin="3,0,0,0" ToolTip="重命名空间" Visibility="{Binding IsSpace, Converter={StaticResource BoolToVisibility}}"
+                                                <Button Grid.Column="3" Content="◈" Style="{StaticResource IconButton}" FontSize="13" Padding="3,0" Margin="3,0,0,0" ToolTip="查看该知识库的元数据构建情况" Visibility="{Binding IsSpace, Converter={StaticResource BoolToVisibility}}"
+                                                        Command="{Binding DataContext.ShowSpaceMetadataCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <Button Grid.Column="4" Content="✎" Style="{StaticResource IconButton}" FontSize="15" Padding="3,0" Margin="3,0,0,0" ToolTip="重命名空间" Visibility="{Binding IsSpace, Converter={StaticResource BoolToVisibility}}"
                                                         Command="{Binding DataContext.EditSpaceCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
-                                                <Button Grid.Column="3" Content="✎" Style="{StaticResource IconButton}" FontSize="15" Padding="3,0" Margin="3,0,0,0" ToolTip="重命名目录" Visibility="{Binding IsDirectory, Converter={StaticResource BoolToVisibility}}"
+                                                <Button Grid.Column="4" Content="✎" Style="{StaticResource IconButton}" FontSize="15" Padding="3,0" Margin="3,0,0,0" ToolTip="重命名目录" Visibility="{Binding IsDirectory, Converter={StaticResource BoolToVisibility}}"
                                                         Command="{Binding DataContext.EditDirectoryCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
                                             </Grid>
                                         </HierarchicalDataTemplate>
@@ -188,35 +192,7 @@
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>
-                    <Grid Grid.Row="2" Visibility="{Binding IsRemoteSidebar, Converter={StaticResource BoolToVisibility}}">
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                        <StackPanel Orientation="Horizontal" Margin="10,0,10,8">
-                            <Button Content="＋ 添加网络位置" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Command="{Binding AddRemoteLocationCommand}" />
-                            <Button Content="▣ 挂接为空间" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Command="{Binding MountRemoteCommand}" />
-                        </StackPanel>
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="8,0">
-                                <TextBlock Text="已保存的 Git、rsync 和网络位置" Margin="6,4,0,8" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="{DynamicResource SecondaryTextBrush}" />
-                                <ListBox ItemsSource="{Binding RemoteLocations}" SelectionChanged="RemoteList_SelectionChanged">
-                                    <ListBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel ToolTip="单击打开此远程目录的本地副本或缓存">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="3" Padding="5,1" Margin="7,0,0,0">
-                                                        <TextBlock Text="{Binding Kind}" FontSize="10" Foreground="{DynamicResource AccentBrush}" />
-                                                    </Border>
-                                                </StackPanel>
-                                                <TextBlock Text="{Binding Address}" MaxWidth="205" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,3,0,0" ToolTip="{Binding Address}" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ListBox.ItemTemplate>
-                                </ListBox>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </Grid>
                     <Grid Grid.Row="2" Visibility="{Binding IsLocalSidebar, Converter={StaticResource BoolToVisibility}}">
-                        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <ScrollViewer helpers:SmoothScroll.Enabled="True" VerticalScrollBarVisibility="Auto">
                             <StackPanel Margin="8,0">
                                 <ToggleButton x:Name="QuickGroup" Content="常用位置" IsChecked="True" Style="{StaticResource SidebarGroupHeader}" />
@@ -240,23 +216,77 @@
                                         <HierarchicalDataTemplate ItemsSource="{Binding Children}"><StackPanel Orientation="Horizontal" Margin="0,3"><Image Source="{Binding Converter={StaticResource FileIconConverter}}" Width="18" Height="18" Margin="0,0,8,0"/><TextBlock Text="{Binding Name}" /></StackPanel></HierarchicalDataTemplate>
                                     </TreeView.ItemTemplate>
                                 </TreeView>
-                            </StackPanel>
-                        </ScrollViewer>
-                        <Border Grid.Row="1" Margin="10,8" Padding="8" Background="{DynamicResource CardBackground}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="7" MaxHeight="150">
-                            <Grid>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                                <TextBlock Text="收藏文件夹" FontWeight="SemiBold" Foreground="{DynamicResource SecondaryTextBrush}" />
-                                <ListBox Grid.Row="1" ItemsSource="{Binding Favorites}" Margin="0,4,0,0" SelectionChanged="FavoriteList_SelectionChanged">
+                                <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="5,8" />
+                                <ToggleButton x:Name="FavoriteGroup" Content="收藏文件夹" IsChecked="True" Style="{StaticResource SidebarGroupHeader}" />
+                                <ListBox x:Name="FavoriteList" ItemsSource="{Binding Favorites}" Visibility="{Binding IsChecked, ElementName=FavoriteGroup, Converter={StaticResource BoolToVisibility}}" SelectionChanged="FavoriteList_SelectionChanged">
+                                    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="Padding" Value="23,5" /></Style></ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal" ToolTip="{Binding}"><Image Source="{Binding Converter={StaticResource FileIconConverter}}" Width="18" Height="18" Margin="0,0,8,0"/><TextBlock Text="{Binding Path=., Converter={StaticResource FolderNameConverter}}" TextTrimming="CharacterEllipsis" /></StackPanel></DataTemplate></ListBox.ItemTemplate>
+                                </ListBox>
+                                <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="5,8" />
+                                <ToggleButton x:Name="RemoteGroup" Content="网络位置" IsChecked="True" Style="{StaticResource SidebarGroupHeader}" />
+                                <ListBox x:Name="RemoteListInLocal" ItemsSource="{Binding RemoteLocations}" Visibility="{Binding IsChecked, ElementName=RemoteGroup, Converter={StaticResource BoolToVisibility}}" SelectionChanged="RemoteList_SelectionChanged">
+                                    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="Padding" Value="23,5" /></Style></ListBox.ItemContainerStyle>
                                     <ListBox.ItemTemplate>
-                                        <DataTemplate><TextBlock Text="{Binding}" MaxWidth="195" TextTrimming="CharacterEllipsis" ToolTip="{Binding}" /></DataTemplate>
+                                        <DataTemplate>
+                                            <StackPanel ToolTip="{Binding Address}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="3" Padding="5,1" Margin="7,0,0,0">
+                                                        <TextBlock Text="{Binding Kind}" FontSize="10" Foreground="{DynamicResource AccentBrush}" />
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding Address}" MaxWidth="205" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,3,0,0" />
+                                            </StackPanel>
+                                        </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
-                            </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                    <Grid Grid.Row="2" Visibility="{Binding IsRemoteSidebar, Converter={StaticResource BoolToVisibility}}">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,4" Margin="10,4,10,4">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="＋ 添加远程位置" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Command="{Binding AddRemoteLocationCommand}" />
+                                <Button Content="▣ 挂接为空间" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Command="{Binding MountRemoteCommand}" />
+                            </StackPanel>
                         </Border>
+                        <ScrollViewer Grid.Row="1" helpers:SmoothScroll.Enabled="True" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="8,0">
+                                <TextBlock Text="已保存的 Git、rsync 和网络位置" Margin="6,4,0,8" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="{DynamicResource SecondaryTextBrush}" />
+                                <ListBox ItemsSource="{Binding RemoteLocations}" SelectionChanged="RemoteList_SelectionChanged">
+                                    <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="Padding" Value="6,5" /></Style></ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel ToolTip="单击打开此远程目录的本地副本或缓存">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="3" Padding="5,1" Margin="7,0,0,0">
+                                                        <TextBlock Text="{Binding Kind}" FontSize="10" Foreground="{DynamicResource AccentBrush}" />
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding Address}" MaxWidth="205" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,3,0,0" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Grid>
                 </Grid>
             </Border>
-            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="Transparent" Visibility="{Binding IsSidebarVisible, Converter={StaticResource BoolToVisibility}}" />
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="Transparent">
+                <GridSplitter.Style>
+                    <Style TargetType="GridSplitter">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSidebarVisible}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </GridSplitter.Style>
+            </GridSplitter>
 
             <Grid Grid.Column="2">
                 <Grid.Style>
@@ -264,7 +294,7 @@
                         <Setter Property="Margin" Value="12" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsSidebarVisible}" Value="False">
-                                <Setter Property="Margin" Value="12,0,0,0" />
+                                <Setter Property="Margin" Value="0" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
@@ -272,7 +302,7 @@
                 <Grid Visibility="{Binding IsBrowserView, Converter={StaticResource BoolToVisibility}}">
                     <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="40"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <Grid Margin="0,0,0,4">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="210"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal">
                             <Button Content="☰" Style="{StaticResource IconButton}" Command="{Binding ToggleSidebarCommand}" ToolTip="收起或展开左侧栏（Ctrl+B）" />
                             <Button Content="←" Style="{StaticResource IconButton}" Command="{Binding SelectedTab.BackCommand}" ToolTip="后退" />
@@ -283,28 +313,63 @@
                         <TextBox Grid.Column="1" Height="30" Text="{Binding SelectedTab.AddressText, UpdateSourceTrigger=PropertyChanged}" KeyDown="Address_KeyDown" Margin="4,0" VerticalAlignment="Center" ToolTip="输入目录路径后按 Enter 跳转" />
                         <Grid Grid.Column="2" Height="30" Margin="4,0" VerticalAlignment="Center">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <TextBox Text="{Binding SelectedTab.SearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="搜索空间索引或本地目录中的文件名" />
-                            <Button Grid.Column="1" Content="🔍" Width="34" Padding="0" Command="{Binding SelectedTab.SearchCommand}" />
+                            <TextBox Text="{Binding KnowledgeSearch.Query, UpdateSourceTrigger=PropertyChanged}" KeyDown="KnowledgeSearch_KeyDown"
+                                     ToolTip="语义检索：支持“今年8月左右的30页左右的ppt”这类描述（回车检索）" />
+                            <Button Grid.Column="1" Content="🔍" Width="34" Padding="0" Command="{Binding KnowledgeSearchCommand}" ToolTip="语义检索（回车）" />
                         </Grid>
                         <Button Grid.Column="3" Content="◧ 预览" Style="{StaticResource IconButton}" Command="{Binding SelectedTab.TogglePreviewCommand}" />
                     </Grid>
                     <Grid Grid.Row="1" Margin="0,0,0,6">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <WrapPanel VerticalAlignment="Center">
-                            <Button Content="☆ 收藏文件夹" Style="{StaticResource ToolbarButton}" Command="{Binding AddFavoriteCommand}" ToolTip="收藏当前浏览的文件夹" />
-                            <Button Content="◫ 编目到目录" Style="{StaticResource ToolbarButton}" Command="{Binding AssignCategoryCommand}" ToolTip="把当前文件归入左侧选中的目录" />
-                            <Button Content="⇩ 拉取更新" Style="{StaticResource ToolbarButton}" Command="{Binding PullCommand}" />
-                            <Button Content="⇧ 保存并上传" Style="{StaticResource ToolbarButton}" Command="{Binding SavePushCommand}" />
-                            <Button Content="◷ Git 历史" Style="{StaticResource ToolbarButton}" Command="{Binding HistoryCommand}" />
-                            <Button Content="⚙ Git 远程配置" Style="{StaticResource ToolbarButton}" Command="{Binding BindGitCommand}" />
-                            <Button Content="★ 关键节点" Style="{StaticResource ToolbarButton}" Command="{Binding ArchiveCommand}" />
-                            <Button Content="▤ 归档记录" Style="{StaticResource ToolbarButton}" Command="{Binding ArchiveHistoryCommand}" />
-                        </WrapPanel>
-                        <ProgressBar Grid.Column="1" Width="90" Height="4" Margin="8,0" IsIndeterminate="True" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+                        <Grid x:Name="ToolbarHost" SizeChanged="ToolbarHost_SizeChanged">
+                            <DockPanel x:Name="ToolbarPanel" HorizontalAlignment="Left">
+                                <!-- 溢出按钮放最右侧 -->
+                                <ToggleButton x:Name="ToolbarOverflowButton" DockPanel.Dock="Right" Style="{StaticResource IconToggleButton}" Content="⋮" FontSize="16" Width="28" Height="28" Padding="0" Visibility="Collapsed" ToolTip="更多工具" BorderThickness="0" Background="Transparent" VerticalAlignment="Center" />
+                                <!-- 所有工具栏按钮顺序排列 -->
+                                <Button Content="{Binding FavoriteButtonText}" Style="{StaticResource ToolbarButton}" Command="{Binding AddFavoriteCommand}" ToolTip="{Binding FavoriteButtonText}" />
+                                <Button Content="◫ 编目到目录" Style="{StaticResource ToolbarButton}" Command="{Binding AssignCategoryCommand}" ToolTip="把当前文件归入左侧选中的目录" />
+                                <Button Content="◈ 整理知识索引" Style="{StaticResource ToolbarButton}" Command="{Binding IngestKnowledgeCommand}" ToolTip="投递基础层元数据任务到后台服务执行，不阻塞界面" />
+                                <Button Content="◧ 元数据面板" Style="{StaticResource ToolbarButton}" Command="{Binding ShowMetadataConfigCommand}" ToolTip="查看各知识库各层元数据的执行进度、更新时间，并手动重跑或配置定时计划" />
+                                <Button Content="⇩ 拉取更新" Style="{StaticResource ToolbarButton}" Command="{Binding PullCommand}" />
+                                <Button Content="⇧ 保存并上传" Style="{StaticResource ToolbarButton}" Command="{Binding SavePushCommand}" />
+                                <Button Content="◷ Git 状态及历史" Style="{StaticResource ToolbarButton}" Command="{Binding HistoryCommand}" />
+                                <Button Content="⚙ Git 远程配置" Style="{StaticResource ToolbarButton}" Command="{Binding BindGitCommand}" />
+                                <!-- 插件按钮占位区 -->
+                                <ItemsControl ItemsSource="{Binding PluginToolbarButtons}" DockPanel.Dock="Right" />
+                            </DockPanel>
+                            <Popup x:Name="ToolbarOverflow" AllowsTransparency="True" Placement="Bottom" PlacementTarget="{Binding ElementName=ToolbarOverflowButton}" IsOpen="{Binding IsChecked, ElementName=ToolbarOverflowButton, Mode=TwoWay}">
+                                <Border Background="{DynamicResource CardBackground}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="4" Margin="0,2,0,0" MaxHeight="300">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel x:Name="ToolbarOverflowPanel" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ProgressBar Grid.Column="1" Width="90" Height="4" Margin="8,0" IsIndeterminate="True" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" HorizontalAlignment="Right" VerticalAlignment="Center" />
                     </Grid>
                     <Grid Grid.Row="2" Background="{DynamicResource PanelBackground}">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="300"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <DataGrid ItemsSource="{Binding SelectedTab.Files}" SelectedItem="{Binding SelectedTab.SelectedFile, Mode=TwoWay}" MouseDoubleClick="Files_MouseDoubleClick">
+                        <DataGrid x:Name="FilesDataGrid" ItemsSource="{Binding SelectedTab.Files}" SelectedItem="{Binding SelectedTab.SelectedFile, Mode=TwoWay}" MouseDoubleClick="Files_MouseDoubleClick"
+                                  AllowDrop="True" DragOver="FilesDataGrid_DragOver" Drop="FilesDataGrid_Drop" PreviewMouseLeftButtonDown="FilesDataGrid_PreviewMouseLeftButtonDown"
+                                  PreviewMouseMove="FilesDataGrid_PreviewMouseMove">
+                            <DataGrid.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="打开" Command="{Binding SelectedTab.OpenCommand}" InputGestureText="Enter" />
+                                    <Separator />
+                                    <MenuItem Header="复制" Command="{Binding SelectedTab.CopyCommand}" InputGestureText="Ctrl+C" />
+                                    <MenuItem Header="剪切" Command="{Binding SelectedTab.CutCommand}" InputGestureText="Ctrl+X" />
+                                    <MenuItem Header="粘贴" Command="{Binding SelectedTab.PasteCommand}" InputGestureText="Ctrl+V" />
+                                    <Separator />
+                                    <MenuItem Header="重命名" Command="{Binding SelectedTab.RenameCommand}" InputGestureText="F2" />
+                                    <MenuItem Header="删除（放回收站）" Command="{Binding SelectedTab.DeleteCommand}" InputGestureText="Delete" />
+                                    <MenuItem Header="永久删除" Command="{Binding SelectedTab.PermanentDeleteCommand}" InputGestureText="Shift+Delete" />
+                                    <Separator />
+                                    <MenuItem Header="在文件资源管理器中显示" Command="{Binding SelectedTab.ShowInExplorerCommand}" />
+                                    <MenuItem Header="打开方式…" Command="{Binding SelectedTab.OpenWithCommand}" />
+                                    <Separator />
+                                    <MenuItem Header="全选" Command="{Binding SelectedTab.SelectAllCommand}" InputGestureText="Ctrl+A" />
+                                </ContextMenu>
+                            </DataGrid.ContextMenu>
                             <DataGrid.Columns>
                                 <DataGridTemplateColumn Header="名称" Width="*">
                                     <DataGridTemplateColumn.CellTemplate>
@@ -324,16 +389,54 @@
                         </DataGrid>
                         <Border Grid.Column="1" Width="310" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Visibility="{Binding SelectedTab.IsPreviewVisible, Converter={StaticResource BoolToVisibility}}">
                             <Grid Margin="12">
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                                <StackPanel Margin="0,0,0,10">
-                                    <TextBlock Text="预览" FontWeight="SemiBold" FontSize="15" />
-                                    <TextBlock Text="{Binding SelectedTab.SelectedFile.Name}" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,5,0,0" />
-                                </StackPanel>
-                                <Grid Grid.Row="1">
-                                    <TextBox Text="{Binding SelectedTab.PreviewText, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
-                                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" BorderThickness="0" Background="Transparent"
-                                             FontFamily="Consolas, Microsoft YaHei UI" FontSize="12" Visibility="{Binding SelectedTab.HasTextPreview, Converter={StaticResource BoolToVisibility}}" />
-                                    <Image Source="{Binding SelectedTab.PreviewImage}" Stretch="Uniform" Visibility="{Binding SelectedTab.HasImagePreview, Converter={StaticResource BoolToVisibility}}" />
+                                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <!-- Row 0: 文件元数据 -->
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Margin="0,0,0,8">
+                                        <TextBlock Text="详情" FontWeight="SemiBold" FontSize="15" />
+                                    </StackPanel>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Text="名称" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,2,10,2"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedTab.SelectedFile.Name, FallbackValue=—}" TextWrapping="Wrap" FontSize="12"/>
+                                            <TextBlock Grid.Row="1" Text="类型" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,2,10,2"/>
+                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedTab.SelectedFile.Kind, FallbackValue=—}" FontSize="12"/>
+                                            <TextBlock Grid.Row="2" Text="大小" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,2,10,2"/>
+                                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedTab.SelectedFile.DisplaySize, FallbackValue=—}" FontSize="12"/>
+                                            <TextBlock Grid.Row="3" Text="创建" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,2,10,2"/>
+                                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedTab.SelectedFile.CreationTime, StringFormat=yyyy-MM-dd HH:mm, FallbackValue=—}" FontSize="12"/>
+                                            <TextBlock Grid.Row="4" Text="修改" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,2,10,2"/>
+                                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedTab.SelectedFile.LastWriteTime, StringFormat=yyyy-MM-dd HH:mm, FallbackValue=—}" FontSize="12"/>
+                                            <TextBlock Grid.Row="5" Text="路径" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,2,10,2"/>
+                                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedTab.SelectedFile.FullPath, FallbackValue=—}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        </Grid>
+                                    </ScrollViewer>
+                                </Grid>
+                                <!-- Row 1: 预览渲染器 -->
+                                <Grid Grid.Row="1" Margin="0,8,0,0">
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                    <TextBlock Text="预览" FontWeight="SemiBold" FontSize="15" Margin="0,0,0,6"/>
+                                    <Border Grid.Row="1" Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="6">
+                                        <Grid>
+                                            <TextBox Text="{Binding SelectedTab.PreviewText, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                                                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" BorderThickness="0" Background="Transparent"
+                                                     FontFamily="Consolas, Microsoft YaHei UI" FontSize="12" Visibility="{Binding SelectedTab.HasTextPreview, Converter={StaticResource BoolToVisibility}}" />
+                                            <Image Source="{Binding SelectedTab.PreviewImage}" Stretch="Uniform" Visibility="{Binding SelectedTab.HasImagePreview, Converter={StaticResource BoolToVisibility}}" />
+                                        </Grid>
+                                    </Border>
                                 </Grid>
                             </Grid>
                         </Border>
@@ -366,6 +469,135 @@
                             <DataGridTextColumn Header="文件指纹" Binding="{Binding FileHash}" Width="140" />
                         </DataGrid.Columns>
                     </DataGrid>
+                </Grid>
+
+                <Grid Visibility="{Binding IsSearchView, Converter={StaticResource BoolToVisibility}}">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <StackPanel Margin="2,4,2,8">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                    <TextBlock Text="语义检索" Foreground="{DynamicResource AccentBrush}" FontSize="12" FontWeight="SemiBold" />
+                                </Border>
+                                <TextBlock Text="{Binding KnowledgeSearch.ResultTitle}" FontSize="18" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button HorizontalAlignment="Right" VerticalAlignment="Center" Content="返回浏览" Command="{Binding KnowledgeSearch.ClearCommand}" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding KnowledgeSearch.Understanding}" Margin="0,8,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="10" Padding="8,3" Margin="0,0,6,4">
+                                        <TextBlock Text="{Binding}" FontSize="12" />
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- 左：命中列表；右：详情 + 预览（与文件浏览布局一致） -->
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="1.4*" MinWidth="300" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 左：命中文件列表 -->
+                        <ListBox ItemsSource="{Binding KnowledgeSearch.Hits}" SelectedItem="{Binding KnowledgeSearch.SelectedHit, Mode=TwoWay}"
+                                 Background="Transparent" BorderThickness="0" Margin="0,0,6,6"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,3">
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Score}" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center" Margin="8,0" ToolTip="相关度评分" />
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                                <Button Content="打开" Style="{StaticResource IconButton}" Command="{Binding DataContext.KnowledgeSearch.OpenHitCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}" />
+                                                <Button Content="⌄" Style="{StaticResource IconButton}" Command="{Binding DataContext.KnowledgeSearch.ToggleSiblingsCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"
+                                                        Visibility="{Binding HasSiblings, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding SiblingSummary}" />
+                                            </StackPanel>
+                                        </Grid>
+                                        <TextBlock Grid.Row="1" Text="{Binding RelativePath}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="2" Text="{Binding Summary}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,2" />
+                                        <ItemsControl Grid.Row="3" ItemsSource="{Binding TagChips}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="6,1" Margin="0,2,5,2">
+                                                        <TextBlock Text="{Binding}" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <ItemsControl Grid.Row="3" Grid.ColumnSpan="1" ItemsSource="{Binding Siblings}" Margin="22,4,0,0"
+                                                      Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                                                        <TextBlock Text="·" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,6,0" />
+                                                        <TextBlock Text="{Binding FileName}" FontSize="12" />
+                                                        <TextBlock Text="{Binding Summary}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="8,0,0,0" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                                      Background="Transparent" Margin="0,0,2,6" />
+
+                        <!-- 右：选中文件详情 + 预览 -->
+                        <Border Grid.Column="2" Background="{DynamicResource CardBackground}" CornerRadius="4" Padding="12" Margin="0,0,0,6">
+                            <Grid>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding KnowledgeSearch.SelectedHit.FileName}" FontWeight="SemiBold" TextWrapping="Wrap" FontSize="14" />
+                                    <TextBlock Text="{Binding KnowledgeSearch.SelectedInfo}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,4" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding KnowledgeSearch.SelectedHit.RelativePath}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" />
+                                    <ItemsControl ItemsSource="{Binding KnowledgeSearch.SelectedHit.TagChips}" Margin="0,6,0,0">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="7,2" Margin="0,0,5,4">
+                                                    <TextBlock Text="{Binding}" FontSize="11" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Content="打 开" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                            Command="{Binding KnowledgeSearch.OpenHitCommand}" CommandParameter="{Binding KnowledgeSearch.SelectedHit}" />
+                                </StackPanel>
+                                <Border Grid.Row="1" Margin="0,10,0,0" Background="{DynamicResource PanelBackground}" CornerRadius="4" Padding="6">
+                                    <Grid>
+                                        <TextBox Text="{Binding KnowledgeSearch.PreviewText, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" BorderThickness="0" Background="Transparent"
+                                                 FontFamily="Consolas, Microsoft YaHei UI" FontSize="12"
+                                                 Visibility="{Binding KnowledgeSearch.HasTextPreview, Converter={StaticResource BoolToVisibility}}" />
+                                        <Image Source="{Binding KnowledgeSearch.PreviewImage}" Stretch="Uniform"
+                                               Visibility="{Binding KnowledgeSearch.HasImagePreview, Converter={StaticResource BoolToVisibility}}" />
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- 空结果提示 -->
+                    <TextBlock Grid.Row="2" Text="没有匹配结果。可调整描述，或先执行“◈ 整理知识索引”生成标签与描述。" Foreground="{DynamicResource SecondaryTextBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16"
+                               Visibility="{Binding KnowledgeSearch.HasResult, Converter={StaticResource InverseBoolToVisibility}, ConverterParameter=Inverse}" />
                 </Grid>
 
                 <Border x:Name="AssistantHost" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,18">

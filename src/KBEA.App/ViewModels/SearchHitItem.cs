@@ -1,0 +1,77 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.IO;
+using CommunityToolkit.Mvvm.ComponentModel;
+using KBEA.Core.Knowledge;
+
+namespace KBEA.App.ViewModels;
+
+/// <summary>检索命中项（UI 包装）：增加版本簇折叠状态、语义标签与显示文本。</summary>
+public sealed partial class SearchHitItem : ObservableObject
+{
+    public SearchHitItem(KnowledgeSearchService.SearchHit hit)
+    {
+        Hit = hit;
+        Siblings = hit.Siblings.Select(s => new SearchHitItem(s)).ToArray();
+    }
+
+    public KnowledgeSearchService.SearchHit Hit { get; }
+
+    public SearchHitItem[] Siblings { get; }
+
+    public string FileName => Path.GetFileName(Hit.RelativePath);
+
+    public string RelativePath => Hit.RelativePath;
+
+    public string FullPath => Hit.FullPath;
+
+    public string Summary => Hit.Summary;
+
+    public string Format => Hit.Format;
+
+    public string Score => Hit.Score > 0 ? Hit.Score.ToString("F1") : string.Empty;
+
+    /// <summary>人类可读的文件大小。</summary>
+    public string DisplaySize
+    {
+        get
+        {
+            if (Hit.Size <= 0) return string.Empty;
+            string[] units = ["B", "KB", "MB", "GB"];
+            var value = (double)Hit.Size;
+            var unit = 0;
+            while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
+            return $"{value.ToString("0.#", CultureInfo.InvariantCulture)} {units[unit]}";
+        }
+    }
+
+    /// <summary>修改时间。</summary>
+    public string DisplayTime => Hit.Mtime > DateTimeOffset.MinValue ? Hit.Mtime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : string.Empty;
+
+    /// <summary>语义标签（过滤内部命名空间与格式标签，保留对用户有意义的类型/主题/版本线索）。</summary>
+    public ObservableCollection<string> TagChips { get; } = [];
+
+    /// <summary>初始化标签展示（在填充结果后调用一次）。</summary>
+    public void BuildTags()
+    {
+        TagChips.Clear();
+        foreach (var tag in Hit.Tags)
+        {
+            if (tag.StartsWith("format/", StringComparison.Ordinal)) continue;
+            if (tag.StartsWith("size/", StringComparison.Ordinal)) continue;
+            TagChips.Add(tag);
+        }
+    }
+
+    /// <summary>版本角色（简化版/完整版/最新/归档…）。</summary>
+    public string VersionRole => Hit.VersionRole;
+
+    [ObservableProperty] private bool _isExpanded;
+
+    public bool HasSiblings => Siblings.Length > 0;
+
+    /// <summary>版本簇说明文案。</summary>
+    public string SiblingSummary => HasSiblings
+        ? $"另有 {Siblings.Length} 个相关版本"
+        : string.Empty;
+}

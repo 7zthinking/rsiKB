@@ -87,3 +87,29 @@ public sealed class StringToVisibilityConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => string.IsNullOrWhiteSpace(value as string) ? Visibility.Collapsed : Visibility.Visible;
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
 }
+
+/// <summary>布尔 → 可见性；ConverterParameter 传 "Inverse" 时反转结果。</summary>
+public sealed class InverseBoolToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var flag = value is bool b && b;
+        if (string.Equals(parameter as string, "Inverse", StringComparison.OrdinalIgnoreCase)) flag = !flag;
+        return flag ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
+/// <summary>完整路径 → 文件夹名（DirectoryInfo.Name）；空值回退原字符串。</summary>
+public sealed class FolderNameConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var path = value as string;
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        try { return new DirectoryInfo(path).Name is { Length: > 0 } name ? name : path; }
+        catch { return path; }
+    }
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}

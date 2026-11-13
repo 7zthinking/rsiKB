@@ -24,3 +24,27 @@ publish/
 .7z/
 plugins/*
 !plugins/README.md
+
+# KBEA: metadata, temporary and spatial data files
+*.tmp
+*.temp
+~$*
+Thumbs.db
+*.tif
+*.tiff
+*.gdb/
+*.shp
+*.shx
+*.dbf
+*.prj
+*.gpkg
+*.las
+*.laz
+
+# KBEA: metadata database, derived data, temporary and spatial data files
+.7z/meta.db
+.7z/meta.db-wal
+.7z/meta.db-shm
+.7z/derived/
+.7z/index/
+.7z/assistant/

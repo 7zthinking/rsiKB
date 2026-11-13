@@ -4,17 +4,22 @@ namespace KBEA.Core.Models;
 
 public sealed class AppConfiguration
 {
+    public string MachineId { get; set; } = Guid.NewGuid().ToString();
+    public string MachineName { get; set; } = Environment.UserName;
     public string AuthorName { get; set; } = Environment.UserName;
     public string AuthorEmail { get; set; } = $"{Environment.UserName}@localhost";
     public string Theme { get; set; } = "Light";
     public string RsyncExecutable { get; set; } = "tools/rsync/rsync.exe";
     public string ArchiveRoot { get; set; } = string.Empty;
     public bool AutoDetect { get; set; } = true;
+    public List<LlmEndpointConfig> LlmEndpoints { get; set; } = [];
     public List<string> FavoriteFolders { get; set; } = [];
     public List<string> RecentLocalFolders { get; set; } = [];
     public List<RemoteLocationDefinition> RemoteLocations { get; set; } = [];
     public List<SpaceDefinition> Spaces { get; set; } = [];
     public List<DirectoryDefinition> Directories { get; set; } = [];
+    public List<Organization> Organizations { get; set; } = [];
+    public List<OrganizationShare> OrganizationShares { get; set; } = [];
 
     /// <summary>旧结构（空间装目录），仅用于一次性迁移；迁移完成后会被清空。</summary>
     public List<WorkspaceDefinition> Workspaces { get; set; } = [];
@@ -67,6 +72,14 @@ public sealed class MountDefinition
 
 public enum RemoteLocationKind { Git, Rsync, Network }
 
+/// <summary>LLM 端点配置。</summary>
+public sealed class LlmEndpointConfig
+{
+    public string Name { get; set; } = string.Empty;
+    public string Endpoint { get; set; } = string.Empty;
+    public string Token { get; set; } = string.Empty;
+}
+
 public sealed class RemoteLocationDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -107,6 +120,7 @@ public sealed record FileEntry(
     bool IsDirectory,
     long Size,
     DateTime LastWriteTime,
+    DateTime CreationTime = default,
     string GitState = "")
 {
     public string Kind => IsDirectory ? "文件夹" : string.IsNullOrWhiteSpace(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant();
@@ -126,6 +140,20 @@ public sealed record GitStatusInfo(bool IsRepository, int ChangeCount, string Br
     public string Display => !IsRepository ? "当前目录不在 Git 仓库中" : ConflictCount > 0 ? $"{ConflictCount} 个冲突" : ChangeCount > 0 ? $"{ChangeCount} 项变更 · {Branch}" : $"已同步 · {Branch}";
 }
 
+/// <summary>单个文件的 Git 状态，用于"Git 状态及历史"面板上部。</summary>
+public sealed record GitStatusEntry(string RelativePath, string State, bool IsStaged)
+{
+    public string StagingText => IsStaged ? "暂存区" : "工作区";
+}
+
+/// <summary>一次 Git 扫描的合并结果：仓库概览 + 各文件状态。</summary>
+public sealed record GitSnapshot(GitStatusInfo Status, IReadOnlyDictionary<string, string> FileStates)
+{
+    public static GitSnapshot Empty { get; } = new(
+        new GitStatusInfo(false, 0, string.Empty, string.Empty, 0),
+        new Dictionary<string, string>());
+}
+
 public sealed record ArchiveRecord(
     string Id,
     string SpaceName,
@@ -136,3 +164,25 @@ public sealed record ArchiveRecord(
     string Status);
 
 public sealed record SyncLog(DateTimeOffset Time, string Operation, string Status, string Message);
+
+/// <summary>组织：LAN 上的一组共享工作空间的 KBEA 实例。</summary>
+public sealed record Organization(
+    Guid Id,
+    string Name,
+    string CreatorId,
+    DateTime Created,
+    List<string> MemberIds,
+    bool IsPublic);
+
+/// <summary>组织与空间之间的共享关系。</summary>
+public sealed record OrganizationShare(
+    Guid OrgId,
+    Guid WorkspaceId,
+    bool AllowShare);
+
+/// <summary>局域网中另一台 KBEA 实例的发现信息。</summary>
+public sealed record MachineInfo(
+    string MachineId,
+    string MachineName,
+    string Endpoint,
+    int Port);
