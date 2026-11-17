@@ -60,6 +60,7 @@ public partial class SettingsWindow : Window
         _panels["appearance"] = BuildAppearancePanel();
         _panels["model"] = BuildModelPanel();
         _panels["organization"] = BuildOrganizationPanel();
+        _panels["sharing"] = BuildSharingPanel();
         _panels["about"] = BuildAboutPanel();
 
         // 默认选中第一个分类
@@ -321,6 +322,84 @@ public partial class SettingsWindow : Window
         panel.Children.Add(btnPanel);
 
         return panel;
+    }
+
+    private FrameworkElement BuildSharingPanel()
+    {
+        var dc = (AppConfiguration)DataContext;
+        var panel = new StackPanel();
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "共享设置",
+            FontSize = 18,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6)
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "团队共享的本地参数：内容缓存限额、同步节奏和服务端口。修改后重启应用生效。",
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 14)
+        });
+
+        panel.Children.Add(MakeNumberRow("内容缓存限额 (GB)",
+            nameof(AppConfiguration.TeamCacheLimitGb), dc, "取回过的团队文件按 LRU 缓存在本地，超出限额自动淘汰。0.1–100。"));
+
+        panel.Children.Add(MakeNumberRow("同步间隔 (分钟)",
+            nameof(AppConfiguration.TeamSyncIntervalMinutes), dc,
+            "定时拉取团队成员元数据的周期；成员上线和手动刷新也会触发。1–120。"));
+
+        panel.Children.Add(MakeNumberRow("服务端口",
+            nameof(AppConfiguration.TeamServicePort), dc,
+            "文件服务起始端口（默认 52235），被占用时自动向后尝试 6 个。防火墙放行规则会按此端口添加。1–65535。"));
+
+        var tip = new Border
+        {
+            Background = (System.Windows.Media.Brush)FindResource("AccentSoftBrush"),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        tip.Child = new TextBlock
+        {
+            Text = "提示：昵称在「团队管理」窗口修改；防火墙放行引导在「新建团队」时弹出，之后也可在团队管理里重试。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
+        };
+        panel.Children.Add(tip);
+
+        return panel;
+    }
+
+    /// <summary>数字输入行：TextBox 绑定数值配置项（WPF 默认转换器，非法输入保持原值）。</summary>
+    private FrameworkElement MakeNumberRow(string label, string propertyName, AppConfiguration dc, string hint)
+    {
+        var box = new TextBox();
+        box.SetBinding(TextBox.TextProperty,
+            new System.Windows.Data.Binding(propertyName)
+            {
+                UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged,
+                Source = dc
+            });
+        box.Height = 32;
+        box.HorizontalAlignment = HorizontalAlignment.Left;
+        box.Width = 140;
+
+        var row = new StackPanel();
+        row.Children.Add(new TextBlock { Text = label, FontWeight = FontWeights.SemiBold });
+        box.Margin = new Thickness(0, 6, 0, 2);
+        row.Children.Add(box);
+        row.Children.Add(new TextBlock
+        {
+            Text = hint,
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 12)
+        });
+        return row;
     }
 
     private FrameworkElement BuildAboutPanel()
@@ -750,6 +829,9 @@ public partial class SettingsWindow : Window
         _configuration.LlmEndpoints = [.. LlmEndpoints];
         _configuration.Organizations = edited.Organizations;
         _configuration.OrganizationShares = edited.OrganizationShares;
+        _configuration.TeamCacheLimitGb = edited.TeamCacheLimitGb;
+        _configuration.TeamSyncIntervalMinutes = edited.TeamSyncIntervalMinutes;
+        _configuration.TeamServicePort = edited.TeamServicePort;
         DialogResult = true;
     }
 

@@ -43,10 +43,12 @@
                     <TabControl.ItemContainerStyle>
                         <Style TargetType="TabItem" BasedOn="{StaticResource {x:Type TabItem}}">
                             <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
                                     <Setter Property="Width" Value="36" />
                                     <Setter Property="MaxWidth" Value="36" />
+                                    <Setter Property="AutomationProperties.Name" Value="新建选项卡" />
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
@@ -54,7 +56,7 @@
                     <TabControl.ItemTemplate>
                         <DataTemplate>
                             <Grid VerticalAlignment="Center">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <Image Source="{Binding CurrentPath, Converter={StaticResource FileIconConverter}}" Width="18" Height="18" Margin="0,0,7,0" VerticalAlignment="Center">
                                     <Image.Style>
                                         <Style TargetType="Image">
@@ -67,7 +69,21 @@
                                         </Style>
                                     </Image.Style>
                                 </Image>
-                                <TextBlock Grid.Column="1" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                <!-- 来源标记：空间 / 本地 / 远程 -->
+                                <Border Grid.Column="1" Background="{DynamicResource AccentSoftBrush}" CornerRadius="3" Padding="4,0" Margin="0,0,6,0" VerticalAlignment="Center" ToolTip="{Binding SourceTip}">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsPlaceholder}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="{Binding SourceText}" Foreground="{DynamicResource AccentBrush}" FontSize="10" />
+                                </Border>
+                                <TextBlock Grid.Column="2" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Visibility" Value="Visible" />
@@ -82,7 +98,7 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                                <Button Grid.Column="2" Content="×" FontSize="16" Width="25" Height="25" Padding="0" Margin="4,0,0,0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                <Button Grid.Column="3" Content="×" FontSize="16" Width="25" Height="25" Padding="0" Margin="2,0,0,0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Right" VerticalAlignment="Center"
                                         Command="{Binding DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding}" ToolTip="关闭标签">
                                     <Button.Style>
@@ -99,7 +115,7 @@
                                         </Style>
                                     </Button.Style>
                                 </Button>
-                                <Button Grid.ColumnSpan="3" Content="＋" FontSize="20" Width="36" Padding="0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                <Button Grid.ColumnSpan="5" Content="＋" FontSize="20" Width="36" Padding="0" BorderThickness="0" Background="Transparent" HorizontalAlignment="Center" VerticalAlignment="Center"
                                         Command="{Binding DataContext.NewTabCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         ToolTip="新建选项卡（Ctrl+T）" AutomationProperties.Name="新建选项卡">
                                     <Button.Style>
@@ -153,7 +169,7 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                         <ToggleButton Content="工作空间" Command="{Binding ShowWorkspaceSidebarCommand}" IsChecked="{Binding IsWorkspaceSidebar, Mode=OneWay}" Style="{StaticResource SidebarTabButton}" Margin="0,0,3,0" />
                         <ToggleButton Grid.Column="1" Content="本地目录" Command="{Binding ShowLocalSidebarCommand}" IsChecked="{Binding IsLocalSidebar, Mode=OneWay}" Style="{StaticResource SidebarTabButton}" Margin="3,0" />
-                        <ToggleButton Grid.Column="2" Content="共享目录" Command="{Binding ShowRemoteSidebarCommand}" IsChecked="{Binding IsRemoteSidebar, Mode=OneWay}" Style="{StaticResource SidebarTabButton}" Margin="3,0,0,0" />
+                        <ToggleButton Grid.Column="2" Content="团队共享" Command="{Binding ShowRemoteSidebarCommand}" IsChecked="{Binding IsRemoteSidebar, Mode=OneWay}" Style="{StaticResource SidebarTabButton}" Margin="3,0,0,0" />
                     </Grid>
                     <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,4" Margin="10,4,10,4" Visibility="{Binding IsWorkspaceSidebar, Converter={StaticResource BoolToVisibility}}">
                         <Grid>
@@ -181,7 +197,7 @@
                                                 </Border>
                                                 <Button Grid.Column="3" Content="◈" Style="{StaticResource IconButton}" FontSize="13" Padding="3,0" Margin="3,0,0,0" ToolTip="查看该知识库的元数据构建情况" Visibility="{Binding IsSpace, Converter={StaticResource BoolToVisibility}}"
                                                         Command="{Binding DataContext.ShowSpaceMetadataCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
-                                                <Button Grid.Column="4" Content="✎" Style="{StaticResource IconButton}" FontSize="15" Padding="3,0" Margin="3,0,0,0" ToolTip="重命名空间" Visibility="{Binding IsSpace, Converter={StaticResource BoolToVisibility}}"
+                                                <Button Grid.Column="4" Content="✎" Style="{StaticResource IconButton}" FontSize="15" Padding="3,0" Margin="3,0,0,0" ToolTip="编辑空间（重命名 / 重新绑定位置）" Visibility="{Binding IsSpace, Converter={StaticResource BoolToVisibility}}"
                                                         Command="{Binding DataContext.EditSpaceCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
                                                 <Button Grid.Column="4" Content="✎" Style="{StaticResource IconButton}" FontSize="15" Padding="3,0" Margin="3,0,0,0" ToolTip="重命名目录" Visibility="{Binding IsDirectory, Converter={StaticResource BoolToVisibility}}"
                                                         Command="{Binding DataContext.EditDirectoryCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
@@ -247,14 +263,93 @@
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                         <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,4" Margin="10,4,10,4">
                             <StackPanel Orientation="Horizontal">
-                                <Button Content="＋ 添加远程位置" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Command="{Binding AddRemoteLocationCommand}" />
-                                <Button Content="▣ 挂接为空间" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Command="{Binding MountRemoteCommand}" />
+                                <Button Content="👥 团队管理" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Command="{Binding ShowTeamManagerCommand}" ToolTip="新建团队 / 加入团队 / 管理共享与权限" />
+                                <Button Content="↻ 同步团队" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Margin="8,0,0,0" Command="{Binding RefreshTeamCommand}" />
                             </StackPanel>
                         </Border>
                         <ScrollViewer Grid.Row="1" helpers:SmoothScroll.Enabled="True" VerticalScrollBarVisibility="Auto">
                             <StackPanel Margin="8,0">
-                                <TextBlock Text="已保存的 Git、rsync 和网络位置" Margin="6,4,0,8" TextWrapping="Wrap" FontWeight="SemiBold" Foreground="{DynamicResource SecondaryTextBrush}" />
-                                <ListBox ItemsSource="{Binding RemoteLocations}" SelectionChanged="RemoteList_SelectionChanged">
+                                <StackPanel.Resources>
+                                    <!-- 行悬浮高亮样式（团队/成员/空间行共用） -->
+                                    <Style x:Key="TeamShareRowBorder" TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="CornerRadius" Value="4" />
+                                        <Setter Property="Padding" Value="4,3" />
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                    <!-- 团队共享树节点模板：团队 → 有共享的成员 → 该成员共享的空间 -->
+                                    <DataTemplate x:Key="TeamShareNodeTemplate">
+                                        <StackPanel Margin="2,6,0,2" ToolTip="{Binding TeamId}">
+                                            <Border Style="{StaticResource TeamShareRowBorder}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="▾" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" MaxWidth="104" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding MemberSummary}" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </Border>
+                                            <ItemsControl ItemsSource="{Binding Members}" Margin="16,2,0,0">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Margin="0,2,0,0" ToolTip="{Binding StatusText}">
+                                                            <Border Style="{StaticResource TeamShareRowBorder}">
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <TextBlock Text="{Binding StatusDot}" FontSize="10" Foreground="{DynamicResource AccentBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                                                    <TextBlock Text="{Binding Nickname}" FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="130" VerticalAlignment="Center" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                            <ItemsControl ItemsSource="{Binding Shares}" Margin="14,1,0,0">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Grid Margin="0,1" ToolTip="{Binding ToolTip}">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="*" />
+                                                                                <ColumnDefinition Width="Auto" />
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <Border Cursor="Hand"
+                                                                                    MouseLeftButtonDown="SharedSpace_MouseLeftButtonDown">
+                                                                                <Border.Style>
+                                                                                    <Style TargetType="Border" BasedOn="{StaticResource TeamShareRowBorder}">
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                                                <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </Border.Style>
+                                                                                <StackPanel Orientation="Horizontal">
+                                                                                    <TextBlock Text="{Binding Entry.SpaceName}" FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="106"
+                                                                                               VerticalAlignment="Center" FontWeight="{Binding RowWeight}" Opacity="{Binding RowOpacity}" />
+                                                                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="3" Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                                                                        <TextBlock Text="{Binding LevelText}" FontSize="10" Foreground="{DynamicResource AccentBrush}" />
+                                                                                    </Border>
+                                                                                </StackPanel>
+                                                                            </Border>
+                                                                            <Button Grid.Column="1" Content="＋我的" Style="{StaticResource IconButton}" FontSize="11" Padding="4,0" Margin="2,0,0,0"
+                                                                                    ToolTip="添加到我的工作空间（团队引用空间，不再共享）"
+                                                                                    Command="{Binding DataContext.AddSharedToWorkspaceCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </StackPanel.Resources>
+                                <ToggleButton Content="我的团队" IsChecked="True" Style="{StaticResource SidebarGroupHeader}" />
+                                <ItemsControl ItemsSource="{Binding MyTeamTree}" Margin="0,0,0,10" ItemTemplate="{StaticResource TeamShareNodeTemplate}" />
+                                <ToggleButton Content="加入的团队" IsChecked="True" Style="{StaticResource SidebarGroupHeader}" />
+                                <ItemsControl ItemsSource="{Binding JoinedTeamTree}" Margin="0,0,0,6" ItemTemplate="{StaticResource TeamShareNodeTemplate}" />
+                                <TextBlock Text="还未加入其他团队" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="14,4,0,6"
+                                           Visibility="{Binding JoinedTeamEmpty, Converter={StaticResource BoolToVisibility}}" />
+                                <ToggleButton x:Name="RemoteGroupShared" Content="网络位置（Git / rsync）" IsChecked="False" Style="{StaticResource SidebarGroupHeader}" />
+                                <ListBox x:Name="RemoteListInShared" ItemsSource="{Binding RemoteLocations}" Visibility="{Binding IsChecked, ElementName=RemoteGroupShared, Converter={StaticResource BoolToVisibility}}" SelectionChanged="RemoteList_SelectionChanged">
                                     <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}"><Setter Property="Padding" Value="6,5" /></Style></ListBox.ItemContainerStyle>
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
@@ -328,8 +423,8 @@
                                 <!-- 所有工具栏按钮顺序排列 -->
                                 <Button Content="{Binding FavoriteButtonText}" Style="{StaticResource ToolbarButton}" Command="{Binding AddFavoriteCommand}" ToolTip="{Binding FavoriteButtonText}" />
                                 <Button Content="◫ 编目到目录" Style="{StaticResource ToolbarButton}" Command="{Binding AssignCategoryCommand}" ToolTip="把当前文件归入左侧选中的目录" />
-                                <Button Content="◈ 整理知识索引" Style="{StaticResource ToolbarButton}" Command="{Binding IngestKnowledgeCommand}" ToolTip="投递基础层元数据任务到后台服务执行，不阻塞界面" />
-                                <Button Content="◧ 元数据面板" Style="{StaticResource ToolbarButton}" Command="{Binding ShowMetadataConfigCommand}" ToolTip="查看各知识库各层元数据的执行进度、更新时间，并手动重跑或配置定时计划" />
+                                <Button Content="◈ 知识WIKI" Style="{StaticResource ToolbarButton}" Command="{Binding ShowMetadataConfigCommand}" ToolTip="查看当前工作空间各层元数据的构建进度、更新时间，手动重跑或配置定时计划" />
+                                <Button Content="⚖ 版本比对" Style="{StaticResource ToolbarButton}" Command="{Binding CompareConflictCommand}" ToolTip="对选中的冲突文件做 HEAD 基线与工作区的双屏比对，并可标记已解决" />
                                 <Button Content="⇩ 拉取更新" Style="{StaticResource ToolbarButton}" Command="{Binding PullCommand}" />
                                 <Button Content="⇧ 保存并上传" Style="{StaticResource ToolbarButton}" Command="{Binding SavePushCommand}" />
                                 <Button Content="◷ Git 状态及历史" Style="{StaticResource ToolbarButton}" Command="{Binding HistoryCommand}" />
@@ -350,6 +445,7 @@
                     <Grid Grid.Row="2" Background="{DynamicResource PanelBackground}">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="300"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <DataGrid x:Name="FilesDataGrid" ItemsSource="{Binding SelectedTab.Files}" SelectedItem="{Binding SelectedTab.SelectedFile, Mode=TwoWay}" MouseDoubleClick="Files_MouseDoubleClick"
+                                  SelectionMode="Extended" SelectionChanged="FilesDataGrid_SelectionChanged"
                                   AllowDrop="True" DragOver="FilesDataGrid_DragOver" Drop="FilesDataGrid_Drop" PreviewMouseLeftButtonDown="FilesDataGrid_PreviewMouseLeftButtonDown"
                                   PreviewMouseMove="FilesDataGrid_PreviewMouseMove">
                             <DataGrid.ContextMenu>
@@ -367,7 +463,7 @@
                                     <MenuItem Header="在文件资源管理器中显示" Command="{Binding SelectedTab.ShowInExplorerCommand}" />
                                     <MenuItem Header="打开方式…" Command="{Binding SelectedTab.OpenWithCommand}" />
                                     <Separator />
-                                    <MenuItem Header="全选" Command="{Binding SelectedTab.SelectAllCommand}" InputGestureText="Ctrl+A" />
+                                    <MenuItem Header="全选" Click="FilesSelectAll_Click" InputGestureText="Ctrl+A" />
                                 </ContextMenu>
                             </DataGrid.ContextMenu>
                             <DataGrid.Columns>
@@ -384,7 +480,22 @@
                                 <DataGridTextColumn Header="类型" Binding="{Binding Kind}" Width="70" />
                                 <DataGridTextColumn Header="大小" Binding="{Binding DisplaySize}" Width="85" />
                                 <DataGridTextColumn Header="修改时间" Binding="{Binding LastWriteTime, StringFormat=MM-dd HH:mm}" Width="110" />
-                                <DataGridTextColumn Header="Git" Binding="{Binding GitState}" Width="75" />
+                                <DataGridTextColumn Header="Git" Binding="{Binding GitState}" Width="75">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Margin" Value="4,0" />
+                                            <Setter Property="VerticalAlignment" Value="Center" />
+                                            <Setter Property="ToolTip" Value="Git 状态：新增 / 已修改 / 已删除 / 重命名 / 冲突" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding GitState}" Value="冲突">
+                                                    <Setter Property="Foreground" Value="#E05252" />
+                                                    <Setter Property="FontWeight" Value="Bold" />
+                                                    <Setter Property="ToolTip" Value="该文件存在合并冲突，选中后点击「⚖ 版本比对」解决" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                         <Border Grid.Column="1" Width="310" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Visibility="{Binding SelectedTab.IsPreviewVisible, Converter={StaticResource BoolToVisibility}}">
@@ -595,7 +706,7 @@
                     </Grid>
 
                     <!-- 空结果提示 -->
-                    <TextBlock Grid.Row="2" Text="没有匹配结果。可调整描述，或先执行“◈ 整理知识索引”生成标签与描述。" Foreground="{DynamicResource SecondaryTextBrush}"
+                    <TextBlock Grid.Row="2" Text="没有匹配结果。可调整描述，或在「◈ 知识WIKI」中重新构建标签与描述。" Foreground="{DynamicResource SecondaryTextBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16"
                                Visibility="{Binding KnowledgeSearch.HasResult, Converter={StaticResource InverseBoolToVisibility}, ConverterParameter=Inverse}" />
                 </Grid>

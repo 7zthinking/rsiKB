@@ -16,8 +16,10 @@ public static class ThemeService
         Set("SecondaryTextBrush", dark ? "#FF9AA7B7" : "#FF667585");
         Set("BorderBrush", dark ? "#FF343E4C" : "#FFDDE3EA");
         Set("AccentBrush", dark ? "#FFFF9B55" : "#FFE87924");
-        Set("AccentSoftBrush", dark ? "#FF4B3020" : "#FFFFE8D6");
-        Set("HoverBrush", dark ? "#FF2B3542" : "#FFF0F4F9");
+        // 选中态要明显深于悬浮态（HoverBrush），避免被误认成鼠标悬浮高亮
+        Set("AccentSoftBrush", dark ? "#FF7A4A22" : "#FFEFC49B");
+        // 悬浮态要比面板底色明显深一档才看得出（此前浅色 #F0F4F9 在白底上几乎不可见）
+        Set("HoverBrush", dark ? "#FF2B3542" : "#FFE2E9F2");
         Set("SuccessBrush", dark ? "#FF57C98B" : "#FF14804A");
         Set("WarningBrush", dark ? "#FFFFC766" : "#FFB54708");
     }

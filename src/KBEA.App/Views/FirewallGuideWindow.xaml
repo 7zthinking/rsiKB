@@ -1,0 +1,25 @@
+<Window x:Class="KBEA.App.Views.FirewallGuideWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="防火墙放行引导" Width="540" Height="360" WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize" Background="{DynamicResource WindowBackground}">
+    <StackPanel Margin="20">
+        <TextBlock Text="首次使用团队共享" FontSize="17" FontWeight="SemiBold" />
+        <TextBlock TextWrapping="Wrap" Margin="0,10,0,0" Foreground="{DynamicResource SecondaryTextBrush}"
+                   Text="为了让局域网里的同事发现你的机器并访问你共享的空间，Windows 防火墙需要放行两条入站规则：" />
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="6" Padding="12,8" Margin="0,10,0,0">
+            <StackPanel>
+                <TextBlock FontFamily="Consolas" FontSize="12">• KBEA TeamShare mDNS —— UDP 5353（设备发现）</TextBlock>
+                <TextBlock FontFamily="Consolas" FontSize="12" Margin="0,3,0,0"><Run Text="• KBEA TeamShare Service" /><Run x:Name="PortRun" Text=" 52235" /><Run Text=" —— TCP（文件服务，仅限本地子网）" /></TextBlock>
+            </StackPanel>
+        </Border>
+        <TextBlock x:Name="HintText" TextWrapping="Wrap" Margin="0,10,0,0" Foreground="{DynamicResource SecondaryTextBrush}"
+                   Text="点击「一键放行」会弹出管理员确认窗口；也可以选择稍后手动处理（不处理时其他设备将无法发现本机）。" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="打开防火墙设置" Style="{StaticResource ToolbarButton}" Click="OnOpenSettings" />
+            <Button x:Name="AllowButton" Content="一键放行" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Click="OnAllow" />
+            <Button Content="稍后处理" Style="{StaticResource ToolbarButton}" Margin="10,0,0,0" IsCancel="True" Click="OnLater" />
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -17,6 +17,8 @@
                     <TextBlock x:Name="BranchText" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" />
                     <TextBlock x:Name="ChangeCountText" Foreground="{DynamicResource SecondaryTextBrush}" Margin="14,0,0,0" />
                     <TextBlock x:Name="ConflictText" Foreground="{DynamicResource WarningBrush}" FontWeight="SemiBold" Margin="14,0,0,0" Visibility="Collapsed" />
+                    <Button x:Name="CompareButton" Content="⚖ 版本比对" Margin="14,0,0,0" Padding="10,3" Click="CompareButton_Click"
+                            IsEnabled="False" ToolTip="对选中的冲突文件做 HEAD 基线与工作区的双屏比对，并可标记已解决" />
                 </StackPanel>
                 <DataGrid x:Name="StatusGrid"
                           Grid.Row="2"
@@ -27,14 +29,22 @@
                           CanUserResizeRows="False"
                           HeadersVisibility="Column"
                           RowHeight="26"
-                          IsSynchronizedWithCurrentItem="False">
+                          IsSynchronizedWithCurrentItem="False"
+                          SelectionChanged="StatusGrid_SelectionChanged">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="状态" Binding="{Binding State}" Width="80">
-                            <DataGridTextColumn.CellStyle>
-                                <Style TargetType="DataGridCell">
-                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Margin" Value="4,0" />
+                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding State}" Value="冲突">
+                                            <Setter Property="Foreground" Value="#E05252" />
+                                            <Setter Property="FontWeight" Value="Bold" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
                                 </Style>
-                            </DataGridTextColumn.CellStyle>
+                            </DataGridTextColumn.ElementStyle>
                         </DataGridTextColumn>
                         <DataGridTextColumn Header="阶段" Binding="{Binding StagingText}" Width="80" />
                         <DataGridTextColumn Header="文件路径" Binding="{Binding RelativePath}" Width="*" />

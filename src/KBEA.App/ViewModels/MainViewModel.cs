@@ -13,6 +13,7 @@ using KBEA.Core.Models;
 using KBEA.Core.Plugins;
 using KBEA.Core.Services;
 using KBEA.Core.Storage;
+using KBEA.Core.Team;
 
 namespace KBEA.App.ViewModels;
 
@@ -40,6 +41,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private SidebarSection _sidebarSection = SidebarSection.Workspace;
     private bool _isAssistantOpen;
     private bool _disposed;
+    private readonly TeamShareService _team;
 
     public MainViewModel(WorkspaceStore store, FileBrowserService files, GitService git, ArchiveService archive, PluginCatalog plugins, IDialogService dialogs, WorkerClient worker)
     {
@@ -51,6 +53,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _dialogs = dialogs;
         _worker = worker;
         _configuration = store.Load();
+        _team = new TeamShareService(
+            id => _configuration.Spaces.FirstOrDefault(s => s.Id == id),
+            () => new TeamShareService.TeamSettings(_configuration.TeamCacheLimitGb, _configuration.TeamSyncIntervalMinutes, _configuration.TeamServicePort),
+            message => GlobalStatus = message);
+        _team.PeersChanged += OnTeamPresenceChanged;
+        _team.SharesChanged += OnTeamSharesChanged;
         NewSpaceCommand = new AsyncRelayCommand(NewSpaceAsync);
         NewDirectoryCommand = new AsyncRelayCommand(NewDirectoryAsync);
         AssignCategoryCommand = new RelayCommand(AssignCategory, () => SelectedTab?.IsLocal == false && SelectedTab.SelectedFile is not null);
@@ -83,12 +91,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ToggleAssistantCommand = new RelayCommand(() => IsAssistantOpen = !IsAssistantOpen);
         ToggleThemeCommand = new RelayCommand(ToggleTheme);
         KnowledgeSearchCommand = new AsyncRelayCommand(RunKnowledgeSearchAsync, () => SelectedTab is not null && !IsBusy);
-        IngestKnowledgeCommand = new AsyncRelayCommand(RunIngestAsync, () => SelectedTab?.IsLocal == false && SelectedTab?.Space is not null && !IsBusy);
         ShowMetadataConfigCommand = new RelayCommand(ShowMetadataConfig);
+        CompareConflictCommand = new RelayCommand(CompareConflict, () =>
+            SelectedTab?.SelectedFile is { IsDirectory: false });
+        // 按钮对任意选中文件可用（HEAD 基线 vs 工作区比对）；非 Git 目录时窗口内提示。
+        // 早期只在 GitState=="冲突" 时可用，导致按钮长期灰着、被误认为未实现。
         ShowSpaceMetadataCommand = new RelayCommand<WorkspaceNodeViewModel>(ShowSpaceMetadata, node => node?.IsSpace == true && node.Space is not null);
         RunSpaceMetadataCommand = new RelayCommand<WorkspaceNodeViewModel>(RunSpaceMetadata, node => node?.IsSpace == true && node.Space is not null);
+        SwitchTabRemoteCommand = new AsyncRelayCommand<RemoteLocationDefinition>(SwitchTabSourceToRemote);
+        ShowTeamManagerCommand = new RelayCommand(ShowTeamManager);
+        RefreshTeamCommand = new AsyncRelayCommand(RefreshTeamAsync);
+        AddSharedToWorkspaceCommand = new RelayCommand<SharedSpaceItem>(AddSharedToWorkspace, item => item is not null);
+        OpenSharedItemCommand = new RelayCommand<SharedSpaceItem>(OpenSharedItem, item => item is not null);
+        OpenTeamShareNodeCommand = new RelayCommand<SharedSpaceItem>(OpenTeamShareNode, item => item is not null);
         KnowledgeSearch.OpenRequested = OpenSearchHit;
-        KnowledgeSearch.PreviewLoader = path => PreviewHelper.Load(path, _files);
+        KnowledgeSearch.PreviewLoader = path => LoadPreviewFor(path);
         // IsSearchView/IsBrowserView 依赖 KnowledgeSearch.IsSearching（跨 ViewModel 计算属性），
         // 必须转发通知，否则 Reset() 退出检索视图时 UI 不会切换
         KnowledgeSearch.PropertyChanged += (_, e) =>
@@ -110,6 +127,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<LocalFolderViewModel> QuickFolders { get; } = [];
     public ObservableCollection<LocalFolderViewModel> RecentFolders { get; } = [];
     public ObservableCollection<RemoteLocationDefinition> RemoteLocations { get; } = [];
+    /// <summary>侧栏团队共享树（我创建的团队）：团队 → 有共享的成员（含本机） → 空间。</summary>
+    public ObservableCollection<TeamShareTeamNode> MyTeamTree { get; } = [];
+    /// <summary>侧栏团队共享树（加入的团队）。</summary>
+    public ObservableCollection<TeamShareTeamNode> JoinedTeamTree { get; } = [];
+    /// <summary>未加入任何其他团队 → 显示提示文案。</summary>
+    public bool JoinedTeamEmpty { get; private set; } = true;
     public ObservableCollection<MountTabViewModel> Tabs { get; } = [];
     /// <summary>标签栏展示集合：真实标签 + 末尾固定宽的“＋”占位标签。</summary>
     public ObservableCollection<MountTabViewModel> TabItems { get; } = [];
@@ -159,10 +182,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand ToggleAssistantCommand { get; }
     public RelayCommand ToggleThemeCommand { get; }
     public AsyncRelayCommand KnowledgeSearchCommand { get; }
-    public AsyncRelayCommand IngestKnowledgeCommand { get; }
     public RelayCommand ShowMetadataConfigCommand { get; }
+    /// <summary>对选中文件做基线（HEAD）与工作区的版本比对；仅冲突文件可用。</summary>
+    public RelayCommand CompareConflictCommand { get; }
     public RelayCommand<WorkspaceNodeViewModel> ShowSpaceMetadataCommand { get; }
     public RelayCommand<WorkspaceNodeViewModel> RunSpaceMetadataCommand { get; }
+    /// <summary>把当前标签切换到指定工作空间。</summary>
+    /// <summary>把当前标签切换到指定远程位置。</summary>
+    public AsyncRelayCommand<RemoteLocationDefinition> SwitchTabRemoteCommand { get; }
+    public RelayCommand ShowTeamManagerCommand { get; }
+    public AsyncRelayCommand RefreshTeamCommand { get; }
+    public RelayCommand<SharedSpaceItem> AddSharedToWorkspaceCommand { get; }
+    public RelayCommand<SharedSpaceItem> OpenSharedItemCommand { get; }
+    /// <summary>侧栏团队树点击共享空间行（我的团队→开空间；加入的团队→开 WebDAV）。</summary>
+    public RelayCommand<SharedSpaceItem> OpenTeamShareNodeCommand { get; }
     public string Version => "开源版 v0.3.0";
     public string PluginSummary => Plugins.Count == 0 ? "智能服务未启用" : $"发现 {Plugins.Count} 个插件";
 
@@ -174,9 +207,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (!SetProperty(ref _selectedNode, value)) return;
             RefreshCommands();
             UpdateFavorites();
-            OpenNode(value);
+            // 程序化同步选中态时不要触发导航（否则会把用户当前目录重置到空间根）
+            if (!_suppressOpenNode) OpenNode(value);
         }
     }
+
+    /// <summary>同步选中态时抑制自动导航。</summary>
+    private bool _suppressOpenNode;
 
     public void OpenNode(WorkspaceNodeViewModel? node)
     {
@@ -198,6 +235,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(FavoriteButtonText));
             RefreshCommands();
             UpdateFavorites();
+            // 标签切换 → 左侧栏自动跳到对应类别并选中项
+            SyncSidebarToTab();
         }
     }
 
@@ -235,17 +274,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool IsEmptyView => !IsCatalogView && !IsSearchView && SelectedTab is null;
     public bool IsSearchView => KnowledgeSearch.IsSearching;
     public bool IsSidebarVisible { get => _isSidebarVisible; set => SetProperty(ref _isSidebarVisible, value); }
+
+    /// <summary>
+    /// 左侧栏当前类别。三类互斥：单值枚举，切换即自动取消另外两类的选中状态。
+    /// </summary>
     public SidebarSection SidebarSection
     {
         get => _sidebarSection;
-        private set
+        set
         {
-            if (!SetProperty(ref _sidebarSection, value)) return;
+            var changed = SetProperty(ref _sidebarSection, value);
+            // 即使值没变也要把三个按钮的选中态重新推给 UI：
+            // 用户点击已选中的 ToggleButton 时控件会先本地取消勾选，必须再同步回去。
             OnPropertyChanged(nameof(IsWorkspaceSidebar));
             OnPropertyChanged(nameof(IsLocalSidebar));
             OnPropertyChanged(nameof(IsRemoteSidebar));
-            // 侧栏切换时，清除当前侧栏的选中态（每个侧栏有自己独立的选中上下文）
-            SelectedNode = null;
+            if (!changed) return;
+            // 手动切换侧栏类别时，三类各自的选中态全部清掉：
+            // 标签当前不在这个类别里，旧类别的高亮就是残留，换回来时不能再显示。
+            // （标签自身切换来源时的同步走 _syncingSidebar=true 分支，不受影响。）
+            if (!_syncingSidebar)
+            {
+                SelectedNode = null;
+                SelectedLocalFolder = null;
+                SelectedRemoteLocation = null;
+            }
             RefreshCommands();
         }
     }
@@ -253,6 +306,98 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool IsLocalSidebar => SidebarSection == SidebarSection.Local;
     public bool IsRemoteSidebar => SidebarSection == SidebarSection.Remote;
     public bool IsAssistantOpen { get => _isAssistantOpen; set => SetProperty(ref _isAssistantOpen, value); }
+
+    /// <summary>同步侧栏时抑制「清空选中态」，由调用方立即重建选中项。</summary>
+    private bool _syncingSidebar;
+
+    /// <summary>
+    /// 标签切换后，把左侧栏同步到该标签对应的类别，并选中对应条目。
+    /// 左侧栏三类互斥由 <see cref="SidebarSection"/> 单值枚举保证。
+    /// </summary>
+    private void SyncSidebarToTab(bool clearOthers = true)
+    {
+        if (_suppressSidebarSync) return;
+        var tab = SelectedTab;
+        if (tab is null) return;
+
+        _syncingSidebar = true;
+        try
+        {
+            // clearOthers=true：标签间切换/手动切换场景，先把三类选中清掉再设目标，杜绝残留。
+            // clearOthers=false：同一标签的来源切换（用户点击条目触发）——点击时 ListBox/TreeView
+            // 的视觉选中已经正确，此时清空会让刚点的高亮丢失（匹配在导航完成前会短暂失败），
+            // 只做目标项设置；匹配不到时保持现状，等最终通知恢复。
+            if (clearOthers)
+            {
+                SelectedLocalFolder = null;
+                SelectedRemoteLocation = null;
+                SelectedNode = null;
+            }
+            switch (tab.SourceKind)
+            {
+                case TabSourceKind.Workspace:
+                    SidebarSection = SidebarSection.Workspace;
+                    SelectWorkspaceNode(tab.WorkspaceSpace);
+                    break;
+                case TabSourceKind.Remote:
+                    SidebarSection = SidebarSection.Remote;
+                    SelectRemoteLocation(tab.RemoteLocation);
+                    break;
+                default:
+                    SidebarSection = SidebarSection.Local;
+                    SelectLocalFolder(tab.CurrentPath);
+                    break;
+            }
+        }
+        finally { _syncingSidebar = false; }
+    }
+
+    /// <summary>在左侧栏里选中对应的工作空间节点（不触发导航）。</summary>
+    private void SelectWorkspaceNode(SpaceDefinition? space)
+    {
+        if (space is null) return;
+        var node = FindSpaceNode(space.Id);
+        if (node is null) return;
+        _suppressOpenNode = true;
+        try { SelectedNode = node; }
+        finally { _suppressOpenNode = false; }
+    }
+
+    /// <summary>在左侧栏里选中对应的本地目录（不触发导航）。匹配不到时保持现状（可能是导航完成前的中间通知）。</summary>
+    private void SelectLocalFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        var all = LocalFolders.Concat(QuickFolders).Concat(RecentFolders).ToList();
+        // 优先精确匹配；否则取路径前缀最长的一项（当前目录可能是某个常用位置的子目录）
+        var match = all.FirstOrDefault(x => x.FullPath.Equals(path, StringComparison.OrdinalIgnoreCase))
+            ?? all.Where(x => path.StartsWith(x.FullPath.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
+                   .OrderByDescending(x => x.FullPath.Length)
+                   .FirstOrDefault();
+        if (match is null) return; // 匹配不到就不清空现有选中，等导航完成后的最终通知
+        SelectedLocalFolder = match;
+    }
+
+    /// <summary>在左侧栏里选中对应的远程位置（不触发打开）。</summary>
+    private void SelectRemoteLocation(RemoteLocationDefinition? location)
+    {
+        SelectedRemoteLocation = location;
+    }
+
+    /// <summary>左侧栏当前选中的本地目录（供 UI 同步高亮）。</summary>
+    public LocalFolderViewModel? SelectedLocalFolder
+    {
+        get => _selectedLocalFolder;
+        private set => SetProperty(ref _selectedLocalFolder, value);
+    }
+    private LocalFolderViewModel? _selectedLocalFolder;
+
+    /// <summary>左侧栏当前选中的远程位置（供 UI 同步高亮）。</summary>
+    public RemoteLocationDefinition? SelectedRemoteLocation
+    {
+        get => _selectedRemoteLocation;
+        private set => SetProperty(ref _selectedRemoteLocation, value);
+    }
+    private RemoteLocationDefinition? _selectedRemoteLocation;
 
     public bool IsBusy
     {
@@ -266,8 +411,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _dialogs.SetDirectories(_configuration.Directories);
         MigrateRemoteLocations();
         RefreshRemoteLocations();
-        RebuildTree();
         RefreshLocalFolders();
+        RebuildTree();
         foreach (var plugin in _plugins.Discover()) Plugins.Add(plugin);
         OnPropertyChanged(nameof(PluginSummary));
         foreach (var space in _configuration.Spaces.Where(x => Directory.Exists(x.Path)))
@@ -275,9 +420,307 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             try { new MetadataStore(space.Path).Initialize(); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { GlobalStatus = $"元数据初始化失败：{ex.Message}"; }
         }
-        var first = _configuration.Spaces.FirstOrDefault(x => Directory.Exists(x.Path));
-        if (first is not null) OpenSpace(first);
+        // 启动不自动打开空间：侧栏默认停在「工作空间」，主面板显示欢迎页，内容由用户自己点。
+        // （此前是自动打开第一个工作空间，用户反馈改为不预开。）
         UpdateFavorites();
+        StartTeamShare();
+    }
+
+    // === 团队共享 ===
+
+    /// <summary>启动团队共享服务（后台线程：身份/端口/mDNS/首轮同步）。</summary>
+    private void StartTeamShare()
+    {
+        var team = _team;
+        Task.Run(() =>
+        {
+            try
+            {
+                team.Start();
+            }
+            catch (Exception ex)
+            {
+                GlobalStatus = $"团队共享启动失败：{ex.Message}";
+            }
+            Application.Current?.Dispatcher.BeginInvoke(RefreshTeamUi);
+        });
+    }
+
+    private void OnTeamPresenceChanged()
+    {
+        // mDNS 后台线程触发 → 调回 UI 线程刷新
+        Application.Current?.Dispatcher.BeginInvoke(RefreshTeamUi);
+    }
+
+    private void OnTeamSharesChanged()
+    {
+        Application.Current?.Dispatcher.BeginInvoke(RefreshTeamUi);
+    }
+
+    /// <summary>重建侧栏团队共享树与状态行。</summary>
+    private void RefreshTeamUi()
+    {
+        SharedSpacesTree(_team.Peers.ToDictionary(p => p.MachineCode, p => p.Online));
+    }
+
+    /// <summary>侧栏团队共享树：团队 → 有共享空间的成员 → 该成员共享的空间（无共享的成员不显示）。</summary>
+    private void SharedSpacesTree(Dictionary<string, bool> peers)
+    {
+        var myCode = _team.Identity.MachineCode;
+        MyTeamTree.Clear();
+        JoinedTeamTree.Clear();
+        foreach (var team in _team.Teams)
+        {
+            var isMyTeam = team.IsOwner(myCode);
+            var members = new List<TeamShareMemberNode>();
+            foreach (var member in team.Members)
+            {
+                var shares = member.MachineCode == myCode
+                    ? team.MyShares
+                    : _team.Store.ReadShares(team.Definition.TeamId, member.MachineCode);
+                if (shares.Count == 0) continue;
+                var online = member.MachineCode == myCode || peers.GetValueOrDefault(member.MachineCode);
+                members.Add(new TeamShareMemberNode
+                {
+                    MachineCode = member.MachineCode,
+                    Nickname = member.Nickname,
+                    Online = online,
+                    Shares = shares.Select(s => new SharedSpaceItem(new SharedEntry
+                    {
+                        TeamId = team.Definition.TeamId,
+                        TeamName = team.Definition.Name,
+                        OwnerMachineCode = member.MachineCode,
+                        OwnerNickname = member.Nickname,
+                        SpaceId = s.SpaceId,
+                        SpaceName = s.SpaceName,
+                        Level = s.Level,
+                        Online = online
+                    }) { FromMyTeam = isMyTeam }).ToList()
+                });
+            }
+            var node = new TeamShareTeamNode
+            {
+                TeamId = team.Definition.TeamId,
+                Name = team.Definition.Name,
+                MemberSummary = members.Count == 0 ? "暂无共享" : $"{members.Count} 名成员共享中",
+                Members = members.OrderBy(n => n.Nickname).ToList()
+            };
+            if (team.IsOwner(myCode)) MyTeamTree.Add(node);
+            else JoinedTeamTree.Add(node);
+        }
+        JoinedTeamEmpty = JoinedTeamTree.Count == 0;
+        OnPropertyChanged(nameof(JoinedTeamEmpty));
+    }
+
+    private void ShowTeamManager()
+    {
+        _dialogs.ShowTeamManager(_team, _configuration, () =>
+        {
+            RefreshTeamUi();
+            RebuildTree();
+        });
+    }
+
+    private async Task RefreshTeamAsync()
+    {
+        GlobalStatus = "正在同步团队共享…";
+        await Task.Run(() => _team.SyncNowAsync("手动")).ConfigureAwait(true);
+        RefreshTeamUi();
+        GlobalStatus = "团队共享已同步";
+    }
+
+    /// <summary>把团队共享条目添加为「我的工作空间」中的团队引用空间（TeamLink）。</summary>
+    private async void AddSharedToWorkspace(SharedSpaceItem? item)
+    {
+        if (item is null) return;
+        var entry = item.Entry;
+        if (_configuration.Spaces.Any(s => s.IsTeamLink && s.OwnerMachineCode == entry.OwnerMachineCode && s.RemoteSpaceId == entry.SpaceId))
+        {
+            _dialogs.Info("这个共享目录已经在我的工作空间里了。");
+            return;
+        }
+        if (!entry.Online)
+        {
+            _dialogs.Info($"来源（{entry.OwnerNickname}）当前离线，无法建立引用。稍后再试。");
+            return;
+        }
+        var space = _team.CreateTeamLinkSpace(entry);
+        _configuration.Spaces.Add(space);
+        SaveConfiguration();
+        RebuildTree();
+        GlobalStatus = $"正在镜像团队共享目录「{entry.SpaceName}」…";
+        try
+        {
+            var (synced, online) = await _team.SyncTeamLinkAsync(space);
+            GlobalStatus = online ? $"已添加团队引用空间，同步 {synced} 个文件" : "来源离线，引用已建立（内容待来源上线后同步）";
+            OpenSpace(space);
+        }
+        catch (Exception ex)
+        {
+            GlobalStatus = $"镜像同步失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>从侧栏团队共享树打开空间/WebDAV 时置位：标签切换不把左侧栏拽去工作空间/本地分组，
+    /// 保持用户停留在团队共享面板（右侧照常切到对应空间浏览）。</summary>
+    private bool _suppressSidebarSync;
+
+    /// <summary>侧栏团队树点击共享空间行：
+    /// 我创建的团队 → 直接打开对应本地空间（与工作空间浏览一致）；
+    /// 加入的团队 → 打开对端 WebDAV UNC 目录（\\ip@端口\空间名，凭据已由 cmdkey 自动写入，走 HTTP WebDAV），右侧即文件夹浏览视图。</summary>
+    private void OpenTeamShareNode(SharedSpaceItem? item)
+    {
+        if (item is null) return;
+        SetShareSelection(item);
+        _suppressSidebarSync = true;
+        try
+        {
+            if (item.FromMyTeam)
+            {
+                var space = _configuration.Spaces.FirstOrDefault(s => s.Id == item.Entry.SpaceId);
+                if (space is null || string.IsNullOrWhiteSpace(space.Path) || !Directory.Exists(space.Path))
+                {
+                    GlobalStatus = "空间不存在或目录不可用";
+                    return;
+                }
+                OpenSpace(space);
+            }
+            else
+            {
+                var peer = _team.GetPeer(item.Entry.OwnerMachineCode);
+                if (peer is not { Online: true })
+                {
+                    GlobalStatus = $"对方（{item.Entry.OwnerNickname}）不在线，暂无法打开 WebDAV 目录";
+                    return;
+                }
+                OpenLocal($"\\\\{peer.Ip}@{peer.Port}\\{item.Entry.SpaceName}");
+            }
+        }
+        finally
+        {
+            _suppressSidebarSync = false;
+        }
+    }
+
+    /// <summary>侧栏共享行单选：点击行高亮，其余行取消。</summary>
+    private void SetShareSelection(SharedSpaceItem selected)
+    {
+        foreach (var team in MyTeamTree)
+            foreach (var member in team.Members)
+                foreach (var share in member.Shares)
+                    share.IsSelected = share == selected;
+        foreach (var team in JoinedTeamTree)
+            foreach (var member in team.Members)
+                foreach (var share in member.Shares)
+                    share.IsSelected = share == selected;
+    }
+
+    /// <summary>双击团队共享条目：直接取回并打开（不建立工作空间引用）。</summary>
+    private void OpenSharedItem(SharedSpaceItem? item)
+    {
+        if (item is null) return;
+        GlobalStatus = $"正在取回「{item.Entry.SpaceName}」…";
+        _ = Task.Run(async () =>
+        {
+            // 无引用浏览 = 取回空间根下的首个可见文件供快速打开；完整浏览请添加为工作空间
+            var space = _team.CreateTeamLinkSpace(item.Entry);
+            space.Id = Guid.NewGuid();
+            var (synced, online) = await _team.SyncTeamLinkAsync(space);
+            GlobalStatus = online ? $"已取回 {synced} 个文件；双击文件即可打开" : "来源离线，暂无法取回";
+        });
+    }
+
+    /// <summary>检索预览分发：团队命中 → 取回到内容缓存再预览；本地 → 原逻辑。</summary>
+    private (System.Windows.Media.Imaging.BitmapImage? Image, string Text) LoadPreviewFor(string path)
+    {
+        var teamRef = TeamHitRef.Decode(path);
+        if (teamRef is null) return PreviewHelper.Load(path, _files);
+        var cached = ResolveTeamHitFile(teamRef, maximumBytes: 8 * 1024 * 1024);
+        if (cached is null) return (null, "来源当前离线，无法预览。等 owner 上线后重试。");
+        return PreviewHelper.Load(cached, _files);
+    }
+
+    /// <summary>把团队命中文件取回内容缓存（LRU），返回本地缓存路径。</summary>
+    private string? ResolveTeamHitFile(TeamHitRef teamRef, long maximumBytes)
+    {
+        if (teamRef.Size > maximumBytes) return null;
+        var key = _team.Cache.Key(teamRef.OwnerMachineCode, teamRef.SpaceId, teamRef.Path, teamRef.Size, teamRef.Mtime);
+        var cached = _team.Cache.TryGet(key);
+        if (cached is not null) return cached;
+        var peer = _team.GetPeer(teamRef.OwnerMachineCode);
+        if (peer is not { Online: true }) return null;
+        var bytes = new TeamClient(_team.Identity).GetFileBytesAsync(peer, teamRef.SpaceId, teamRef.Path).GetAwaiter().GetResult();
+        if (bytes is null) return null;
+        return _team.Cache.Put(key, bytes);
+    }
+
+    /// <summary>合并团队共享元数据命中（追加在本地命中之后）。</summary>
+    private void MergeTeamHits(string query)
+    {
+        try
+        {
+            var teamHits = _team.SearchShared(query);
+            foreach (var (entry, source) in teamHits.Take(50))
+            {
+                var hit = new KnowledgeSearchService.SearchHit
+                {
+                    Hash = $"team:{entry.Hash}",
+                    RelativePath = entry.Path,
+                    FullPath = new TeamHitRef
+                    {
+                        OwnerMachineCode = source.OwnerMachineCode,
+                        OwnerNickname = source.OwnerNickname,
+                        SpaceId = source.SpaceId,
+                        SpaceName = source.SpaceName,
+                        TeamId = source.TeamId,
+                        Path = entry.Path,
+                        Size = entry.Size,
+                        Mtime = entry.Mtime,
+                        Level = source.Level
+                    }.Encode(),
+                    Format = string.IsNullOrWhiteSpace(Path.GetExtension(entry.Path)) ? "文件夹" : Path.GetExtension(entry.Path).TrimStart('.').ToUpperInvariant(),
+                    Size = entry.Size,
+                    Mtime = entry.Mtime > 0 ? DateTimeOffset.FromUnixTimeSeconds(entry.Mtime) : DateTimeOffset.MinValue,
+                    Tags = [$"type/来自 {source.OwnerNickname}·{source.SpaceName}", "team/共享"],
+                    Score = 0.1
+                };
+                var item = new SearchHitItem(hit);
+                item.BuildTags();
+                KnowledgeSearch.Hits.Add(item);
+            }
+            if (teamHits.Count > 0)
+                GlobalStatus = $"本地命中之外，团队共享另有 {teamHits.Count} 项（点击取回预览）。";
+        }
+        catch (Exception ex)
+        {
+            GlobalStatus = $"团队检索合并失败：{ex.Message}";
+        }
+    }
+
+    // === 标签来源切换 ===
+
+    /// <summary>把当前标签切换到指定远程位置。</summary>
+    private async Task SwitchTabSourceToRemote(RemoteLocationDefinition? location)
+    {
+        if (location is null || SelectedTab is null || IsBusy) return;
+        IsBusy = true;
+        GlobalStatus = $"正在准备远程位置 {location.Name}…";
+        try
+        {
+            var path = await Task.Run(() => PrepareRemoteLocation(location));
+            SaveConfiguration();
+            SelectedTab.SwitchRemote(location, path);
+            GlobalStatus = location.Kind == RemoteLocationKind.Rsync
+                ? $"已切换到 {location.Name} 的本地缓存；尚未执行实时 rsync 浏览。"
+                : $"已切换到远程位置 {location.Name}：{path}";
+            SyncSidebarToTab();
+        }
+        catch (Exception ex)
+        {
+            GlobalStatus = "远程位置打开失败";
+            _dialogs.Info($"远程位置打开失败：{ex.Message}");
+        }
+        finally { IsBusy = false; }
     }
 
     private void RefreshLocalFolders()
@@ -398,13 +841,42 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (node?.Kind != WorkspaceNodeKind.Space || node.Space is null) return;
         var space = node.Space;
-        var result = _dialogs.ShowEditSpace(space.Name);
+        var result = _dialogs.ShowEditSpace(space.Name, space.Path, space.DirectoryId);
         if (result is null) return;
         if (result.DeleteRequested) { DeleteSpace(space); return; }
-        space.Name = result.Name.Trim();
+
+        // 重新绑定位置：确认 → 清旧元数据 → 新位置建元数据 → 改配置 → 标签跟随
+        var newPath = result.NewPath?.Trim();
+        if (!string.IsNullOrWhiteSpace(newPath) && !newPath.Equals(space.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Directory.Exists(newPath)) { _dialogs.Info("新的位置不存在或无法访问。"); return; }
+            if (!_dialogs.Confirm($"把空间“{space.Name}”的绑定位置改为：\n\n{newPath}\n\n原位置（{space.Path}）的元数据将被删除，新位置会重新建立元数据。\n两处的资料文件都不会被改动。是否继续？")) return;
+            try
+            {
+                if (Directory.Exists(space.Path)) MetadataStore.Cleanup(space.Path);
+                new MetadataStore(newPath).Initialize();
+            }
+            catch (Exception ex)
+            {
+                _dialogs.Info($"元数据迁移失败，空间位置未改变：{ex.Message}");
+                return;
+            }
+            var oldPath = space.Path;
+            space.Path = newPath;
+            space.LastSyncAt = null;
+            // 打开着这个空间的标签跟随到新位置
+            foreach (var tab in Tabs.Where(x => x.WorkspaceSpace?.Id == space.Id).ToArray()) tab.SwitchSpace(space);
+            GlobalStatus = $"空间“{space.Name}”已从 {oldPath} 重新绑定到 {newPath}。";
+        }
+
+        var newName = result.Name.Trim();
+        if (!newName.Equals(space.Name, StringComparison.Ordinal))
+        {
+            space.Name = newName;
+            GlobalStatus = $"空间已更名为“{space.Name}”。";
+        }
         SaveConfiguration();
         RebuildTree();
-        GlobalStatus = $"空间已重命名为“{space.Name}”。";
     }
 
     private void EditDirectory(WorkspaceNodeViewModel? node)
@@ -449,7 +921,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _dialogs.Info($"元数据删除失败：{ex.Message}");
             return;
         }
-        foreach (var tab in Tabs.Where(x => !x.IsLocal && x.Space.Id == space.Id).ToArray()) CloseTab(tab);
+        foreach (var tab in Tabs.Where(x => x.WorkspaceSpace?.Id == space.Id).ToArray()) CloseTab(tab);
         _configuration.Spaces.Remove(space);
         SelectedNode = null;
         IsCatalogView = false;
@@ -460,7 +932,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void AssignCategory()
     {
-        if (SelectedTab is not { IsLocal: false } tab || tab.SelectedFile is not { } file) return;
+        if (SelectedTab is not { WorkspaceSpace: { } space } tab || tab.SelectedFile is not { } file) return;
         var directories = _configuration.Directories
             .Where(x => _configuration.Spaces.Any(s => s.DirectoryId == x.Id))
             .ToList();
@@ -471,9 +943,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (directory is null) { _dialogs.Info("找不到这个目录。"); return; }
         try
         {
-            var metadata = new MetadataStore(tab.Space.Path);
-            metadata.AddLink(tab.Space.Id, directory.Id, file.RelativePath);
-            metadata.ExportCatalogSnapshot(tab.Space, _configuration.Directories);
+            var metadata = new MetadataStore(space.Path);
+            metadata.AddLink(space.Id, directory.Id, file.RelativePath);
+            metadata.ExportCatalogSnapshot(space, _configuration.Directories);
             GlobalStatus = $"已将“{file.Name}”编入“{directory.Name}”。";
         }
         catch (Exception ex) { _dialogs.Info($"编目失败：{ex.Message}"); }
@@ -523,7 +995,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (string.IsNullOrWhiteSpace(query)) return;
 
         // 本地标签页没有空间元数据，退回文件名检索并明确提示
-        if (tab.IsLocal || tab.Space is null)
+        var space = tab.WorkspaceSpace;
+        if (space is null)
         {
             tab.SearchText = query;
             tab.SearchCommand.Execute(null);
@@ -534,7 +1007,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             IsBusy = true;
-            var metadataPath = Path.Combine(tab.Space.Path, ".7z");
+            var metadataPath = Path.Combine(space.Path, ".7z");
             var catalogDirectory = Path.Combine(metadataPath, "catalog");
 
             // 尚未整理过索引时给出明确指引，而不是返回空结果
@@ -548,6 +1021,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var service = new KnowledgeSearchService(metadataPath);
             var outcome = await Task.Run(() => service.Search(query));
             KnowledgeSearch.Apply(outcome);
+            MergeTeamHits(query);
             KnowledgeSearch.IsSearching = true;
             IsCatalogView = false;
             OnPropertyChanged(nameof(IsSearchView));
@@ -564,27 +1038,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         finally { IsBusy = false; }
     }
 
-    /// <summary>整理当前空间的知识索引：投递后台任务，不阻塞界面。</summary>
-    private async Task RunIngestAsync()
+    /// <summary>打开知识索引构建面板：只显示当前打开标签对应的工作空间。</summary>
+    private void ShowMetadataConfig()
     {
-        var tab = SelectedTab;
-        if (tab?.Space is null) return;
-        var space = tab.Space;
-
-        try
-        {
-            var job = _worker.EnqueueJob(space.Path, space.Name, MetadataJobKind.Basic, "manual");
-            GlobalStatus = "已投递基础层元数据任务，后台处理中。可在「知识库元数据」面板查看进度。";
-            await Task.Yield();
-        }
-        catch (Exception ex)
-        {
-            _dialogs.Info($"投递任务失败：{ex.Message}");
-        }
+        // 「针对当前打开的工作空间」：本地目录/我的电脑标签没有对应知识库，回退到全部列表
+        var space = SelectedTab?.WorkspaceSpace;
+        ShowMetadataPanel(space);
     }
 
-    /// <summary>打开知识库元数据面板。</summary>
-    private void ShowMetadataConfig() => ShowMetadataPanel(null);
+    /// <summary>打开冲突/变更版本比对窗口（HEAD 基线 vs 工作区）。</summary>
+    private void CompareConflict()
+    {
+        var tab = SelectedTab;
+        var file = tab?.SelectedFile;
+        if (tab is null || file is null || file.IsDirectory) return;
+        var root = string.IsNullOrWhiteSpace(tab.GitRepositoryRoot)
+            ? _git.DiscoverRepositoryRoot(tab.CurrentPath)
+            : tab.GitRepositoryRoot;
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            _dialogs.Info("当前目录不在 Git 仓库中。");
+            return;
+        }
+        var window = new Views.ConflictDiffWindow(_git, root, file.RelativePath)
+        {
+            Owner = Application.Current.MainWindow
+        };
+        window.ShowDialog();
+    }
 
     /// <summary>打开知识库元数据面板，并聚焦到指定知识库。</summary>
     private void ShowSpaceMetadata(WorkspaceNodeViewModel? node)
@@ -627,9 +1108,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>打开检索命中的文件。</summary>
     private void OpenSearchHit(KnowledgeSearchService.SearchHit hit)
     {
+        // 团队共享命中：取回到内容缓存后用系统默认程序打开
+        var teamRef = TeamHitRef.Decode(hit.FullPath);
+        if (teamRef is not null)
+        {
+            GlobalStatus = $"正在取回 {teamRef.Path}…";
+            _ = Task.Run(() =>
+            {
+                var cached = ResolveTeamHitFile(teamRef, maximumBytes: 64 * 1024 * 1024);
+                if (cached is null) { GlobalStatus = "取回失败：来源离线或权限不足。"; return; }
+                GlobalStatus = $"已取回 {Path.GetFileName(teamRef.Path)}，正在打开…";
+                Process.Start(new ProcessStartInfo(cached) { UseShellExecute = true });
+                GlobalStatus = $"已打开团队共享文件 {Path.GetFileName(teamRef.Path)}";
+            });
+            return;
+        }
         var tab = SelectedTab;
-        if (tab is null || tab.Space is null) return;
-        var fullPath = Path.Combine(tab.Space.Path, hit.RelativePath);
+        var space = tab?.WorkspaceSpace;
+        if (tab is null || space is null) return;
+        var fullPath = Path.Combine(space.Path, hit.RelativePath);
         if (!File.Exists(fullPath) && !Directory.Exists(fullPath)) return;
         tab.SelectCatalogFile(fullPath);
         KnowledgeSearch.IsSearching = false;
@@ -652,7 +1149,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var tab = Tabs.FirstOrDefault(x => !x.IsLocal && x.Space.Id == space.Id);
+        var tab = Tabs.FirstOrDefault(x => x.WorkspaceSpace?.Id == space.Id);
         if (tab is null)
         {
             tab = new MountTabViewModel(space, _files, _git);
@@ -667,6 +1164,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         tab.SelectionChanged += (_, _) => RefreshCommands();
         tab.GitStatusChanged += (_, _) => { if (SelectedTab == tab) RefreshCommands(); };
+        // 标签来源变化（空间↔本地↔远程）→ 左侧栏跟着切到对应类别。
+        // 同一标签的来源切换不主动清三类选中（点击场景下视觉已正确），只设目标项。
+        tab.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MountTabViewModel.SourceKind) && SelectedTab == tab) SyncSidebarToTab(clearOthers: false);
+        };
     }
 
     /// <summary>新增真实标签，并把它插到末尾的“＋”占位标签之前。</summary>
@@ -696,11 +1199,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void NewTab()
     {
-        var tab = new MountTabViewModel(_files, _git);
+        // 新标签默认跟随「第一个工作空间」；没有工作空间时退到我的电脑
+        var first = _configuration.Spaces.FirstOrDefault(x => Directory.Exists(x.Path));
+        MountTabViewModel tab;
+        if (first is not null)
+        {
+            tab = new MountTabViewModel(first, _files, _git);
+        }
+        else
+        {
+            tab = new MountTabViewModel(_files, _git);
+        }
         AttachTab(tab);
         AddTab(tab);
         SelectedTab = tab;
-        GlobalStatus = "已打开我的电脑。";
+        GlobalStatus = first is not null ? $"已打开工作空间“{first.Name}”。" : "已打开我的电脑。";
     }
 
     private void OpenLocalFolder()
@@ -807,6 +1320,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private async Task OpenRemoteAsync(RemoteLocationDefinition? location)
     {
         if (location is null || IsBusy) return;
+        // 当前有标签 → 把它切到远程来源；没有标签 → 走标签来源切换命令（它会新建/复用标签）
+        if (SelectedTab is not null)
+        {
+            await SwitchTabSourceToRemote(location);
+            return;
+        }
         IsBusy = true;
         GlobalStatus = $"正在打开远程位置 {location.Name}…";
         try
@@ -892,7 +1411,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var repositoryPath = result.RepositoryPath;
         var remote = result.RemoteUrl.Trim();
         await RunOperationAsync(tab, "Git 仓库关联", repositoryPath, progress => _git.BindRepository(repositoryPath, remote, progress).Display, "初始化本地仓库并关联远程 origin");
-        tab.Space.RemoteUrl = remote;
+        // 只在标签绑定的是工作空间时写回配置（本地标签的 Space 是临时对象）
+        if (tab.WorkspaceSpace is { } bound) bound.RemoteUrl = remote;
         if (!string.IsNullOrWhiteSpace(remote))
         {
             RememberRemoteLocation(new RemoteLocationDefinition
@@ -934,8 +1454,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             var message = await Task.Run(() => action(progress));
             progress.Done(true, message);
-            tab.Space.LastSyncAt = DateTimeOffset.Now;
-            if (!tab.IsLocal) new MetadataStore(tab.Space.Path).RecordSync(operation, "成功", message);
+            var space = tab.WorkspaceSpace;
+            if (space is not null)
+            {
+                space.LastSyncAt = DateTimeOffset.Now;
+                new MetadataStore(space.Path).RecordSync(operation, "成功", message);
+            }
             SaveConfiguration();
             tab.Refresh();
             GlobalStatus = $"{tab.Title}：{message}";
@@ -945,7 +1469,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var detail = ex is GitCommandException gce ? gce.Message : $"{operation}失败：{ex.Message}";
             progress.Report($"✖ {detail}");
             progress.Done(false, detail);
-            try { if (!tab.IsLocal) new MetadataStore(tab.Space.Path).RecordSync(operation, "失败", ex.Message); } catch { }
+            try { if (tab.WorkspaceSpace is { } s) new MetadataStore(s.Path).RecordSync(operation, "失败", ex.Message); } catch { }
             GlobalStatus = $"{tab.Title}：{operation}失败";
         }
         finally { IsBusy = false; }
@@ -959,7 +1483,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task ArchiveAsync()
     {
-        if (SelectedTab is not { IsLocal: false } tab) return;
+        if (SelectedTab is not { WorkspaceSpace: { } space } tab) return;
         var note = _dialogs.Prompt("标记关键节点", "节点备注", $"关键节点 {DateTime.Now:yyyy-MM-dd HH:mm}");
         if (note is null) return;
         IsBusy = true;
@@ -967,7 +1491,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             var progress = new Progress<string>(message => GlobalStatus = $"{tab.Title}：{message}");
-            var record = await Task.Run(() => _archive.CreateAsync(tab.Space, _configuration, note, progress));
+            var record = await Task.Run(() => _archive.CreateAsync(space, _configuration, note, progress));
             GlobalStatus = $"{tab.Title}：关键节点 {record.NodeName} 已归档。";
         }
         catch (Exception ex) { GlobalStatus = "归档失败"; _dialogs.Info($"归档失败：{ex.Message}"); }
@@ -976,7 +1500,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void ShowArchiveHistory()
     {
-        if (SelectedTab is { IsLocal: false } tab) _dialogs.ShowArchives(_archive.GetHistory(tab.Space.Path), $"{tab.Title} · 关键节点");
+        if (SelectedTab is { WorkspaceSpace: { } space } tab) _dialogs.ShowArchives(_archive.GetHistory(space.Path), $"{tab.Title} · 关键节点");
     }
 
     private void ShowSettings()
@@ -1062,7 +1586,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         Application.Current?.Dispatcher.BeginInvoke(() =>
         {
-            var tab = Tabs.FirstOrDefault(x => x.Space.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+            var tab = Tabs.FirstOrDefault(x => x.WorkspaceSpace?.Path.Equals(path, StringComparison.OrdinalIgnoreCase) == true);
             if (tab is null) return;
             tab.Refresh();
             GlobalStatus = $"{tab.Title}：检测到文件变更（提示模式，不会自动上传）。";
@@ -1108,6 +1632,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         PullCommand.NotifyCanExecuteChanged();
         SavePushCommand.NotifyCanExecuteChanged();
         HistoryCommand.NotifyCanExecuteChanged();
+        CompareConflictCommand.NotifyCanExecuteChanged();
         ArchiveCommand.NotifyCanExecuteChanged();
         ArchiveHistoryCommand.NotifyCanExecuteChanged();
         RefreshCommand.NotifyCanExecuteChanged();
@@ -1119,6 +1644,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
         _monitor.Dispose();
+        _team.Dispose();
         // 关闭所有标签：停止它们回填后台扫描结果
         foreach (var tab in Tabs) tab.Dispose();
     }

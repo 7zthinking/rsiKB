@@ -1,0 +1,155 @@
+<Window x:Class="KBEA.App.Views.TeamManagementWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="团队管理" Width="880" Height="600" MinWidth="760" MinHeight="520"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource WindowBackground}">
+    <Grid Margin="18,16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 左：团队列表 + 操作 -->
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="我的团队" FontSize="15" FontWeight="SemiBold" Margin="2,0,0,8" />
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+                <Button Content="▣ 新建团队" Style="{StaticResource PrimaryButton}" Command="{Binding CreateTeamCommand}" />
+                <Button Content="＋ 加入团队" Style="{StaticResource ToolbarButton}" Margin="8,0,0,0" Command="{Binding JoinTeamCommand}" />
+            </StackPanel>
+            <ListBox Grid.Row="2" x:Name="TeamList" ItemsSource="{Binding Teams}" SelectedItem="{Binding SelectedTeam, Mode=TwoWay}"
+                     BorderBrush="{DynamicResource BorderBrush}" Background="Transparent">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,4" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="10,8" ToolTip="{Binding TeamId}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="3" Padding="5,1" Margin="8,0,0,0"
+                                            Visibility="{Binding OwnerBadge, Converter={StaticResource StringToVisibility}}">
+                                        <TextBlock Text="{Binding OwnerBadge}" FontSize="10" Foreground="{DynamicResource AccentBrush}" />
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="{Binding MemberSummary}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,3,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+
+        <GridSplitter Grid.Column="1" Width="1" Background="{DynamicResource BorderBrush}" Margin="14,0" />
+
+        <!-- 右：团队详情 -->
+        <Grid Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Orientation="Horizontal" Margin="2,0,0,4">
+                <TextBlock Text="{Binding DetailTitle}" FontSize="18" FontWeight="SemiBold" />
+                <Button Content="复制团队 ID" Style="{StaticResource IconButton}" Margin="12,0,0,0"
+                        Command="{Binding CopyTeamIdCommand}" ToolTip="{Binding SelectedTeam.TeamId}" />
+            </StackPanel>
+
+            <!-- 成员 -->
+            <TextBlock Grid.Row="1" Text="成员" FontWeight="SemiBold" Foreground="{DynamicResource SecondaryTextBrush}" Margin="2,10,0,6" />
+            <Border Grid.Row="2" Background="{DynamicResource PanelBackground}" BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="6">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding DetailMembers}" Margin="6,4">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="6,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="70" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding StatusDot}" Foreground="{DynamicResource AccentBrush}" Margin="0,0,8,0" ToolTip="{Binding StatusText}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Nickname}" TextTrimming="CharacterEllipsis" />
+                                    <Border Grid.Column="2" Background="{DynamicResource AccentSoftBrush}" CornerRadius="3" Padding="5,1"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding RoleText}" FontSize="10" Foreground="{DynamicResource AccentBrush}" />
+                                    </Border>
+                                    <TextBlock Grid.Column="3" Text="{Binding MachineDisplay}" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               FontSize="11" VerticalAlignment="Center" ToolTip="{Binding Member.MachineCode}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+
+            <!-- 共享配置 -->
+            <Grid Grid.Row="3" Margin="2,14,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="本机共享给该团队的工作空间" FontWeight="SemiBold" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="＋ 添加共享空间" Style="{StaticResource PrimaryButton}" Command="{Binding AddShareCommand}" />
+            </Grid>
+            <Border Grid.Row="4" Background="{DynamicResource PanelBackground}" BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="6">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Grid Margin="6,4">
+                        <TextBlock Text="尚未共享空间。点击「＋ 添加共享空间」选择要共享的工作空间和权限级别。"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" Margin="10,10"
+                                   Visibility="{Binding DetailSharesEmpty, Converter={StaticResource BoolToVisibility}}" />
+                        <ItemsControl ItemsSource="{Binding DetailShares}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="6,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding SpaceName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding SpaceName}" />
+                                        <ComboBox Grid.Column="1" Width="110" Margin="10,0,0,0" VerticalAlignment="Center"
+                                                  SelectedIndex="{Binding LevelIndex, Mode=TwoWay}" ToolTip="团队成员对该空间的权限">
+                                            <ComboBoxItem Content="可搜索" />
+                                            <ComboBoxItem Content="可读取" />
+                                            <ComboBoxItem Content="可编辑" />
+                                        </ComboBox>
+                                        <Button Grid.Column="2" Content="移除" Style="{StaticResource IconButton}" Margin="10,0,4,0"
+                                                Command="{Binding DataContext.RemoveShareCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </ScrollViewer>
+            </Border>
+
+            <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="2,14,0,0">
+                <Button Content="防火墙检测" Style="{StaticResource ToolbarButton}" Command="{Binding FirewallCheckCommand}"
+                        ToolTip="检查并放行团队共享所需的防火墙规则（mDNS 5353/UDP + 文件服务 TCP）" />
+                <Button Content="生成邀请码" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Command="{Binding GenerateInviteCommand}"
+                        ToolTip="生成 7 天有效的团队邀请码并复制到剪贴板" />
+                <Button Content="{Binding SelectedTeam.LeaveText}" Style="{StaticResource ToolbarButton}" Margin="10,0,0,0" Command="{Binding LeaveTeamCommand}"
+                        ToolTip="owner 解散团队（成员失去成员表同步）；成员退出团队" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

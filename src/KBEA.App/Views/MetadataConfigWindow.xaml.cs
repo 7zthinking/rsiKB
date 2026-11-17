@@ -83,10 +83,13 @@ public partial class MetadataConfigWindow : Window
         var failed = 0;
         var pending = 0;
 
+        // 语义层没有可用插件时永远无法完成，不计入总任务量，否则总进度到不了 100%
+        var semanticAvailable = PluginManager.Instance.GetByLevel(MetadataLevel.Semantic).Count > 0;
         foreach (var space in _spaces)
         {
             foreach (var level in new[] { MetadataLevel.Basic, MetadataLevel.Type, MetadataLevel.Semantic })
             {
+                if (level == MetadataLevel.Semantic && !semanticAvailable) continue;
                 total++;
                 if (!latest.TryGetValue($"{space.Path}|{(int)level}", out var job)) { pending++; continue; }
                 switch (job.State)
@@ -101,7 +104,9 @@ public partial class MetadataConfigWindow : Window
 
         OverviewText.Text = total == 0
             ? "尚未登记任何知识库。"
-            : $"共 {total} 项（{_spaces.Count} 个库 × 3 个层级）：已完成 {done} · 进行中 {running} · 排队/未开始 {pending} · 失败 {failed}";
+            : semanticAvailable
+                ? $"共 {total} 项（{_spaces.Count} 个库 × 3 个层级）：已完成 {done} · 进行中 {running} · 排队/未开始 {pending} · 失败 {failed}"
+                : $"共 {total} 项（{_spaces.Count} 个库 × 2 个层级，未发现语义插件）：已完成 {done} · 进行中 {running} · 排队/未开始 {pending} · 失败 {failed}";
 
         var percent = total == 0 ? 0 : (int)Math.Min(100, done * 100L / total);
         OverviewBar.Value = percent;

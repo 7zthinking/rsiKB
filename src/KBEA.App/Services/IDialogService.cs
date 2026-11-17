@@ -2,7 +2,7 @@ using KBEA.Core.Models;
 
 namespace KBEA.App.Services;
 
-public sealed record SpaceDialogResult(string Name, string Path = "", string RemoteUrl = "", RemoteLocationKind RemoteKind = RemoteLocationKind.Network, Guid? DirectoryId = null, bool DeleteRequested = false);
+public sealed record SpaceDialogResult(string Name, string Path = "", string RemoteUrl = "", RemoteLocationKind RemoteKind = RemoteLocationKind.Network, Guid? DirectoryId = null, bool DeleteRequested = false, string? NewPath = null);
 public sealed record GitDialogResult(string RepositoryPath, string RemoteUrl);
 
 /// <summary>Git 操作进度面板：Begin 返回一个 IGitProgress，后台 Report 实时追加到面板，结束时 Done 设最终状态。</summary>
@@ -20,10 +20,11 @@ public interface IDialogService
     bool Confirm(string message, string title = "请确认");
     bool ShowSettings(AppConfiguration configuration);
     SpaceDialogResult? ShowNewSpace(Guid? preselectDirectoryId = null);
-    SpaceDialogResult? ShowEditSpace(string name);
+    SpaceDialogResult? ShowEditSpace(string name, string? currentPath = null, Guid? preselectDirectoryId = null);
     RemoteLocationDefinition? ShowRemoteLocation();
     GitDialogResult? ShowGitRepository(string currentPath);
     void ShowHistory(string title, string repositoryPath);
     void ShowArchives(IEnumerable<ArchiveRecord> records, string title);
     IGitProgress BeginGitOperation(string title, string subtitle);
+    void ShowTeamManager(TeamShareService teamService, AppConfiguration configuration, Action onChanged);
 }

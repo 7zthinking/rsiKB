@@ -197,3 +197,64 @@ src/KBEA.App/Styles/
 - ❌ 不要用 `Margin` 偏移模拟布局定位。
 - ❌ 不要全局置 `FocusVisualStyle="{x:Null}"`（当前是历史欠账，修的时候改，不要沿用）。
 - ❌ 不要用 emoji 做功能图标（当前用的是 Unicode 几何字形，非 emoji，保持一致）。
+
+---
+
+## 八、成熟模块界面配方（新增 UI 界面必须照此执行）
+
+WPF 没有 CSS——所有"风格统一"都靠 **App.xaml 的隐式样式 + 语义色板键 + 本节的固定配方**。新增任何界面（窗口/面板/列表）时不许自己发明数值，直接套用以下 token 与结构。
+
+### 8.1 字号分级（5 级，全局唯一取值）
+
+| 级别 | 字号 | 字重 | 用途 |
+|---|---|---|---|
+| H1 | 24 | SemiBold | 窗口大标题（欢迎页） |
+| H2 | 18 | SemiBold | 面板/详情区标题（如团队详情 `DetailTitle`） |
+| H3 | 15 | SemiBold | 分组栏标题（侧栏组名，如"我的团队"） |
+| Body | 13 | Normal | 正文默认、按钮、输入框、列表主行 |
+| Caption | 11 | Normal | 辅助信息、摘要、状态行、徽标（10-11） |
+
+- 主行字号 12-13，辅助行 10-11；**不许出现 14/16/17 这类中间值**。
+- 树/列表层级靠**缩进 + 字号差**表达，不靠颜色花活。
+
+### 8.2 间距与圆角 token
+
+| Token | 值 | 用途 |
+|---|---|---|
+| 圆角-控件 | 6 | 按钮 |
+| 圆角-列表 | 4-5 | 行悬浮 Border、列表项、徽标 |
+| 圆角-卡片 | 6 | 卡片容器（Border 包 CardBackground） |
+| 圆角-标签页 | 10,10,0,0 | 顶部 Tab |
+| 按钮内距 | `12,6`（PrimaryButton）/ `7,3`（IconButton）/ 行内小按钮 `4,0` | |
+| 列表行内距 | `7,5`（ListBoxItem）/ 自绘行 `4,3`（Border Padding） | |
+| 行间距 | 行与行 `Margin="0,2~4"`；组与组 `Margin="0,6~10"` | |
+| 侧栏面板外边距 | `Margin="8~10,0"` | |
+| 窗口级内边距 | `18,16` | |
+
+### 8.3 图标约定
+
+- 一律 **Unicode 几何字形**（☰ ← → ↑ ↻ ▣ ＋ ▮ ◷ ☆ ⇩ ⇧ ● ○ ▾），不引 SVG 库、不用 emoji。
+- 状态点：在线 `●`（AccentBrush）/ 离线 `○`（同字形淡色或直接用 ○）。
+- 文件图标走 Shell 系统图标（`FileIconConverter`）。
+- 纯图标按钮**必须**带 `ToolTip`（后续补 `AutomationProperties.Name`）。
+
+### 8.4 复用结构（有现成实现就照抄，别重写）
+
+| 结构 | 参考实现 |
+|---|---|
+| 侧栏分组头 | `ToggleButton Style="SidebarGroupHeader"`（可折叠，IsChecked 控制显隐） |
+| 侧栏树行（悬浮高亮+选中态） | MainWindow 团队共享树的 `TeamShareRowBorder`：Border + IsMouseOver→HoverBrush，IsSelected→AccentSoftBrush |
+| 卡片容器 | `Border Background="PanelBackground" BorderBrush="BorderBrush" BorderThickness="1" CornerRadius="6"` |
+| 工具栏按钮 | `ToolbarButton`；主操作用 `PrimaryButton`（每屏最多 1-2 个） |
+| 危险操作 | `ToolbarButton` + 二次确认（`_dialogs.Confirm`），不放 PrimaryButton |
+| 空态提示 | `TextBlock` Caption 级 + SecondaryTextBrush + 一句引导（如"还未加入其他团队"） |
+| 列表行内编辑 | ComboBox 直接绑 `LevelIndex` 即改即落盘（参考 TeamManagementWindow ShareRow） |
+| 对话框 | 继承无边框 chrome（`WindowChromeService`），标题栏/按钮排版对齐 TeamManagementWindow |
+
+### 8.5 交互硬规则
+
+1. **可点击行必有**：`Cursor="Hand"` + 悬浮底色（HoverBrush）+ 点击有实际效果（打开/选中），三者缺一不可。
+2. **列表单选**：点击置 `IsSelected`（VM 统一清其他行），选中底色 AccentSoftBrush，文字仍用 TextBrush（不许彩色字）。
+3. **徽标**（权限/状态）：`AccentSoftBrush` 底 + `AccentBrush` 字 + CornerRadius 3 + Padding 4,1——只放 10-11px 短词。
+4. **长文本**一律 `TextTrimming="CharacterEllipsis"` + `MaxWidth` + ToolTip 全文。
+5. **新面板颜色只用语义键**，禁止内联 hex（对照第二节对比度表选键）。

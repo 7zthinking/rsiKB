@@ -1,16 +1,20 @@
 using System.Collections.Generic;
 using System.Windows;
+using KBEA.Core.Git;
 using KBEA.Core.Models;
 
 namespace KBEA.App.Views;
 
 public partial class GitHistoryWindow : Window
 {
-    public GitHistoryWindow(string title, GitStatusInfo status, IEnumerable<GitStatusEntry> entries, IEnumerable<GitCommitInfo> commits)
+    private readonly string? _repositoryPath;
+
+    public GitHistoryWindow(string title, string? repositoryPath, GitStatusInfo status, IEnumerable<GitStatusEntry> entries, IEnumerable<GitCommitInfo> commits)
     {
         InitializeComponent();
         Title = title;
         TitleText.Text = title;
+        _repositoryPath = repositoryPath;
 
         if (!status.IsRepository)
         {
@@ -34,5 +38,19 @@ public partial class GitHistoryWindow : Window
 
         StatusGrid.ItemsSource = entries;
         HistoryGrid.ItemsSource = commits;
+    }
+
+    /// <summary>只有选中"冲突"文件时才允许版本比对。</summary>
+    private void StatusGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        CompareButton.IsEnabled = StatusGrid.SelectedItem is GitStatusEntry entry
+            && entry.State.Contains("冲突");
+    }
+
+    private void CompareButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (StatusGrid.SelectedItem is not GitStatusEntry entry || string.IsNullOrWhiteSpace(_repositoryPath)) return;
+        var dialog = new ConflictDiffWindow(new GitService(), _repositoryPath, entry.RelativePath) { Owner = this };
+        dialog.ShowDialog();
     }
 }

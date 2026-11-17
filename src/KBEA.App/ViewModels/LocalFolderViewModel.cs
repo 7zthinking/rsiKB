@@ -41,4 +41,7 @@ public sealed class LocalFolderViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
+
+    /// <summary>UIA/读屏等场景用目录名作为元素名（默认 ToString 会暴露类名）。</summary>
+    public override string ToString() => Name;
 }

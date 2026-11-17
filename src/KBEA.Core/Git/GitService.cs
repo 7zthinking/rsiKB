@@ -182,13 +182,49 @@ public sealed class GitService
         return repository.Index.Conflicts.Select(x => x.Ancestor?.Path ?? x.Ours?.Path ?? x.Theirs?.Path ?? string.Empty).Where(x => x.Length > 0).Distinct().ToArray();
     }
 
-    public void ResolveConflict(string path, string relativePath, string resolvedText, string authorName, string authorEmail)
+    /// <summary>
+    /// 读取 HEAD 中某文件的基线内容，用于冲突/变更版本比对。
+    /// Found=false 表示 HEAD 中不存在（新文件）；IsBinary=true 表示二进制文件（含 NUL 字节），不返回文本。
+    /// </summary>
+    public HeadFileContent GetHeadFileText(string path, string relativePath)
+    {
+        var discovered = Directory.Exists(path) ? Repository.Discover(path) : null;
+        if (string.IsNullOrWhiteSpace(discovered)) return HeadFileContent.Missing;
+        using var repository = new Repository(discovered);
+        var commit = repository.Head.Tip;
+        if (commit is null) return HeadFileContent.Missing;
+        var entry = commit[relativePath.Replace('\\', '/')];
+        if (entry?.TargetType != TreeEntryTargetType.Blob) return HeadFileContent.Missing;
+        var blob = (Blob)entry.Target;
+        using var stream = blob.GetContentStream();
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        var bytes = buffer.ToArray();
+        if (Array.IndexOf(bytes, (byte)0) >= 0) return new HeadFileContent(true, true, string.Empty);
+        return new HeadFileContent(true, false, System.Text.Encoding.UTF8.GetString(bytes));
+    }
+
+    /// <summary>
+    /// 标记冲突已解决并提交（作者取自仓库 git config 的 user.name / user.email）。
+    /// keepWorktree=true 直接以工作区内容为解决结果（二进制文件唯一可用分支）；
+    /// keepWorktree=false 时先把 resolvedText 写回文件（"放弃工作区改动"传 HEAD 基线文本）。
+    /// </summary>
+    public void ResolveConflict(string path, string relativePath, string? resolvedText, bool keepWorktree)
     {
         var root = DiscoverRepositoryRoot(path) ?? throw new InvalidOperationException("当前目录不在 Git 仓库中。");
-        File.WriteAllText(Path.Combine(root, relativePath), resolvedText);
+        var fullPath = Path.Combine(root, relativePath);
+        if (!keepWorktree)
+        {
+            if (resolvedText is null) throw new InvalidOperationException("没有可写回的解决内容。");
+            File.WriteAllText(fullPath, resolvedText);
+        }
         using var repository = OpenRepository(root);
         Commands.Stage(repository, relativePath);
-        var signature = new Signature(authorName, authorEmail, DateTimeOffset.Now);
+        var config = repository.Config;
+        var signature = new Signature(
+            config.Get<string>("user.name")?.Value ?? "KBEA",
+            config.Get<string>("user.email")?.Value ?? "kbea@local",
+            DateTimeOffset.Now);
         repository.Commit($"解决冲突：{relativePath}", signature, signature);
     }
 

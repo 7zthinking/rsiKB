@@ -11,6 +11,9 @@ using KBEA.Core.Storage;
 
 namespace KBEA.App.ViewModels;
 
+/// <summary>标签内容来源：工作空间 / 本地位置 / 远程位置。三类互斥。</summary>
+public enum TabSourceKind { Workspace, Local, Remote }
+
 public sealed partial class MountTabViewModel : ObservableObject
 {
     public const string ComputerPath = "我的电脑";
@@ -56,7 +59,9 @@ public sealed partial class MountTabViewModel : ObservableObject
 
     public MountTabViewModel(SpaceDefinition space, FileBrowserService files, GitService git)
     {
-        Space = space;
+        _workspaceSpace = space;
+        _isLocal = false;
+        _sourceKind = TabSourceKind.Workspace;
         RootPath = space.Path;
         _files = files;
         _git = git;
@@ -69,20 +74,38 @@ public sealed partial class MountTabViewModel : ObservableObject
     {
         var fullPath = Path.GetFullPath(path);
         var rootPath = Path.GetPathRoot(fullPath) ?? fullPath;
-        Space = new SpaceDefinition { Name = "本地目录", Path = rootPath };
+        _transientSpace.Name = "本地目录";
+        _transientSpace.Path = rootPath;
         RootPath = rootPath;
-        IsLocal = true;
+        _isLocal = true;
+        _sourceKind = TabSourceKind.Local;
         _files = files;
         _git = git;
         _currentPath = fullPath;
         Initialize();
     }
 
+    public MountTabViewModel(RemoteLocationDefinition location, string path, FileBrowserService files, GitService git)
+    {
+        _transientSpace.Name = location.Name;
+        _transientSpace.Path = path;
+        RootPath = path;
+        _isLocal = true;
+        _sourceKind = TabSourceKind.Remote;
+        RemoteLocation = location;
+        _files = files;
+        _git = git;
+        _currentPath = path;
+        Initialize();
+    }
+
     public MountTabViewModel(FileBrowserService files, GitService git)
     {
-        Space = new SpaceDefinition { Name = ComputerPath, Path = ComputerPath };
+        _transientSpace.Name = ComputerPath;
+        _transientSpace.Path = ComputerPath;
         RootPath = ComputerPath;
-        IsLocal = true;
+        _isLocal = true;
+        _sourceKind = TabSourceKind.Local;
         _files = files;
         _git = git;
         _currentPath = ComputerPath;
@@ -91,9 +114,11 @@ public sealed partial class MountTabViewModel : ObservableObject
 
     private MountTabViewModel()
     {
-        Space = new SpaceDefinition { Name = "＋", Path = string.Empty };
+        _transientSpace.Name = "＋";
+        _transientSpace.Path = string.Empty;
         RootPath = string.Empty;
-        IsLocal = true;
+        _isLocal = true;
+        _sourceKind = TabSourceKind.Local;
         IsPlaceholder = true;
         _files = null!;
         _git = null!;
@@ -130,7 +155,7 @@ public sealed partial class MountTabViewModel : ObservableObject
                 if (!newRoot.Equals(RootPath, StringComparison.OrdinalIgnoreCase))
                 {
                     RootPath = newRoot;
-                    Space.Path = newRoot;
+                    _transientSpace.Path = newRoot;
                     Directories.Clear();
                     Directories.Add(new FolderNodeViewModel(this, RootPath, RootPath, _files));
                 }
@@ -144,7 +169,6 @@ public sealed partial class MountTabViewModel : ObservableObject
         DeleteCommand = new RelayCommand(DeleteSelected, () => SelectedFile is not null);
         PermanentDeleteCommand = new RelayCommand(PermanentDeleteSelected, () => SelectedFile is not null);
         RenameCommand = new RelayCommand(RenameSelected, () => SelectedFile is not null && !SelectedFile.IsDirectory);
-        SelectAllCommand = new RelayCommand(() => { /* DataGrid 绑定，code-behind 处理 */ });
         OpenWithCommand = new RelayCommand(OpenSelectedWithShell, () => SelectedFile is not null);
         ShowInExplorerCommand = new RelayCommand(ShowSelectedInExplorer, () => SelectedFile is not null);
         AddToWorkspaceCommand = new RelayCommand(AddSelectedToWorkspace, () => SelectedFile is not null && IsLocal);
@@ -152,14 +176,110 @@ public sealed partial class MountTabViewModel : ObservableObject
         Refresh();
     }
 
-    public SpaceDefinition Space { get; private set; }
+    /// <summary>
+    /// 当前标签绑定的空间定义。
+    /// 工作空间模式下是配置里的真实对象；本地/远程模式下是标签私有的临时对象
+    /// （绝不能写配置对象的 Path，否则会把工作空间的路径改成盘根）。
+    /// </summary>
+    public SpaceDefinition Space => _workspaceSpace ?? _transientSpace;
+
+    /// <summary>标签绑定的工作空间（本地/远程模式下为 null）。</summary>
+    public SpaceDefinition? WorkspaceSpace => _workspaceSpace;
+
+    private SpaceDefinition? _workspaceSpace;
+    private readonly SpaceDefinition _transientSpace = new();
+
     public string RootPath { get; private set; }
-    public bool IsLocal { get; private set; }
+
+    /// <summary>标签是否处于本地/远程模式（false = 工作空间模式）。</summary>
+    public bool IsLocal
+    {
+        get => _isLocal;
+        private set
+        {
+            if (!SetProperty(ref _isLocal, value)) return;
+            OnPropertyChanged(nameof(SyncText));
+        }
+    }
+    private bool _isLocal = true;
+
+    /// <summary>
+    /// 标签当前的内容来源：工作空间 / 本地位置 / 远程位置。
+    /// 只有真正切换来源时才发通知——左侧栏靠这个通知跟随标签，
+    /// 如果每次切换目录都通知，左侧栏会被反复拉回，抵消用户的手动选择。
+    /// </summary>
+    public TabSourceKind SourceKind
+    {
+        get => _sourceKind;
+        private set
+        {
+            if (!SetProperty(ref _sourceKind, value)) return;
+            OnPropertyChanged(nameof(SourceText));
+            OnPropertyChanged(nameof(SourceTip));
+        }
+    }
+    private TabSourceKind _sourceKind = TabSourceKind.Local;
+
+    /// <summary>来源短标记，显示在标签卡片上。</summary>
+    public string SourceText => SourceKind switch
+    {
+        TabSourceKind.Workspace => "空间",
+        TabSourceKind.Local => "本地",
+        _ => "远程",
+    };
+
+    /// <summary>来源完整说明，用于提示气泡。</summary>
+    public string SourceTip => SourceKind switch
+    {
+        TabSourceKind.Workspace => $"来源：工作空间（{Space.Name}）",
+        TabSourceKind.Local => "来源：本地位置",
+        _ => $"来源：远程位置（{RemoteLocation?.Name}）",
+    };
+
+    // === 来源切换（工作空间 / 本地位置 / 远程位置）===
+
+    /// <summary>切换到指定工作空间。</summary>
+    public void SwitchToSpace(SpaceDefinition space)
+    {
+        if (!Directory.Exists(space.Path)) return;
+        SwitchSpace(space);
+    }
+
+    /// <summary>切换到指定本地目录。</summary>
+    public void SwitchToLocal(string fullPath)
+    {
+        if (string.IsNullOrWhiteSpace(fullPath) || !Directory.Exists(fullPath)) return;
+        SwitchLocal(fullPath);
+    }
+
+    /// <summary>当前标签绑定的远程位置（来源为远程时有效）。</summary>
+    public RemoteLocationDefinition? RemoteLocation
+    {
+        get => _remoteLocation;
+        private set => SetProperty(ref _remoteLocation, value);
+    }
+    private RemoteLocationDefinition? _remoteLocation;
     private MetadataStore? _metadata;
     /// <summary>占位标签：仅用于在标签栏末尾显示“＋”，不代表真实的浏览标签。</summary>
     public bool IsPlaceholder { get; init; }
     public bool IsComputer => CurrentPath.Equals(ComputerPath, StringComparison.OrdinalIgnoreCase);
-    public string Title => CatalogDirectoryName ?? (IsComputer ? ComputerPath : new DirectoryInfo(CurrentPath).Name is { Length: > 0 } name ? name : CurrentPath);
+
+    /// <summary>
+    /// 标签标题：
+    /// 工作空间标签显示空间名（而不是目录名——空间路径可能正好是盘根，
+    /// 显示目录名会让卡片变成"C:\"，看不出对应哪个工作空间）；
+    /// 本地/远程标签显示当前目录名。
+    /// </summary>
+    public string Title
+    {
+        get
+        {
+            if (CatalogDirectoryName is not null) return CatalogDirectoryName;
+            if (IsComputer) return ComputerPath;
+            if (!IsLocal && _workspaceSpace is not null) return _workspaceSpace.Name;
+            return new DirectoryInfo(CurrentPath).Name is { Length: > 0 } name ? name : CurrentPath;
+        }
+    }
     public event EventHandler? SelectionChanged;
     public ObservableCollection<FileEntry> Files { get; } = [];
     public ObservableCollection<FolderNodeViewModel> Directories { get; } = [];
@@ -177,7 +297,6 @@ public sealed partial class MountTabViewModel : ObservableObject
     public RelayCommand DeleteCommand { get; private set; } = null!;
     public RelayCommand PermanentDeleteCommand { get; private set; } = null!;
     public RelayCommand RenameCommand { get; private set; } = null!;
-    public RelayCommand SelectAllCommand { get; private set; } = null!;
     public RelayCommand OpenWithCommand { get; private set; } = null!;
     public RelayCommand ShowInExplorerCommand { get; private set; } = null!;
     public RelayCommand AddToWorkspaceCommand { get; private set; } = null!;
@@ -197,6 +316,16 @@ public sealed partial class MountTabViewModel : ObservableObject
     public string SyncText => IsLocal ? "本地浏览" : Space.LastSyncAt.HasValue ? $"同步 {Space.LastSyncAt.Value:MM-dd HH:mm}" : "尚未同步";
     public bool HasImagePreview => PreviewImage is not null;
     public bool HasTextPreview => PreviewImage is null;
+
+    /// <summary>多选文件集合（MainWindow 在 DataGrid.SelectionChanged 里同步；空 = 仅单选锚点）。</summary>
+    public IReadOnlyList<FileEntry> SelectedFiles { get; set; } = [];
+
+    /// <summary>当前操作目标：多选优先，回退单选锚点。</summary>
+    private List<FileEntry> EffectiveSelection()
+    {
+        if (SelectedFiles.Count > 0) return SelectedFiles.ToList();
+        return SelectedFile is null ? [] : [SelectedFile];
+    }
 
     public FileEntry? SelectedFile
     {
@@ -255,58 +384,95 @@ public sealed partial class MountTabViewModel : ObservableObject
     public void SwitchSpace(SpaceDefinition space)
     {
         CatalogDirectoryName = null;
-        if (Space?.Id == space.Id && RootPath.Equals(space.Path, StringComparison.OrdinalIgnoreCase) && !IsLocal)
+        if (_workspaceSpace?.Id == space.Id && RootPath.Equals(space.Path, StringComparison.OrdinalIgnoreCase) && !IsLocal)
         {
             // 已经在这个空间了，直接导航到根
             Navigate(space.Path);
             return;
         }
-        Space = space;
+        _workspaceSpace = space;
         IsLocal = false;
+        RemoteLocation = null;
         RootPath = space.Path;
         _metadata = new MetadataStore(space.Path);
         Directories.Clear();
         Directories.Add(new FolderNodeViewModel(this, RootPath, space.Name, _files));
         _back.Clear();
         _forward.Clear();
+        SourceKind = TabSourceKind.Workspace;
         Navigate(space.Path, recordHistory: false);
 
-        OnPropertyChanged(nameof(IsLocal));
-        OnPropertyChanged(nameof(IsComputer));
-        OnPropertyChanged(nameof(IsOnline));
-        OnPropertyChanged(nameof(SyncText));
-        OnPropertyChanged(nameof(CanUseGit));
-        OnPropertyChanged(nameof(Title));
+        NotifyModeChanged();
         _ = RefreshGitStatusAsync();
     }
 
-    /// <summary>让当前标签切换到另一个本地文件夹。</summary>
+    /// <summary>
+    /// 让当前标签切换到另一个本地文件夹。
+    /// 本地模式下不持有任何配置里的空间对象，避免把工作空间的 Path 改写成盘根。
+    /// </summary>
     public void SwitchLocal(string fullPath)
     {
         CatalogDirectoryName = null;
         var rootPath = Path.GetPathRoot(fullPath) ?? fullPath;
-        if (RootPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase) && IsLocal)
+        if (RootPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase) && IsLocal && RemoteLocation is null)
         {
             Navigate(fullPath);
             return;
         }
-        Space = new SpaceDefinition { Name = "本地目录", Path = rootPath };
+        _workspaceSpace = null;
         IsLocal = true;
+        RemoteLocation = null;
         RootPath = rootPath;
+        _transientSpace.Name = "本地目录";
+        _transientSpace.Path = rootPath;
         _metadata = null;
         Directories.Clear();
         Directories.Add(new FolderNodeViewModel(this, RootPath, RootPath, _files));
         _back.Clear();
         _forward.Clear();
+        SourceKind = TabSourceKind.Local;
         Navigate(fullPath, recordHistory: false);
 
-        OnPropertyChanged(nameof(IsLocal));
+        NotifyModeChanged();
+        _ = RefreshGitStatusAsync();
+    }
+
+    /// <summary>让当前标签切换到远程位置（本地缓存路径）。</summary>
+    public void SwitchRemote(RemoteLocationDefinition location, string localPath)
+    {
+        CatalogDirectoryName = null;
+        _workspaceSpace = null;
+        IsLocal = true;
+        RemoteLocation = location;
+        RootPath = localPath;
+        _transientSpace.Name = location.Name;
+        _transientSpace.Path = localPath;
+        _metadata = null;
+        Directories.Clear();
+        Directories.Add(new FolderNodeViewModel(this, RootPath, location.Name, _files));
+        _back.Clear();
+        _forward.Clear();
+        SourceKind = TabSourceKind.Remote;
+        Navigate(localPath, recordHistory: false);
+
+        NotifyModeChanged();
+        _ = RefreshGitStatusAsync();
+    }
+
+    /// <summary>切换来源后统一刷新受影响的 UI 状态。</summary>
+    private void NotifyModeChanged()
+    {
         OnPropertyChanged(nameof(IsComputer));
         OnPropertyChanged(nameof(IsOnline));
         OnPropertyChanged(nameof(SyncText));
         OnPropertyChanged(nameof(CanUseGit));
         OnPropertyChanged(nameof(Title));
-        _ = RefreshGitStatusAsync();
+        OnPropertyChanged(nameof(Space));
+        // 来源切换的侧栏同步必须拿到最终的 CurrentPath 再触发：
+        // SwitchLocal 中途（RemoteLocation=null 等）就会发 SourceKind 通知，但那时 Navigate
+        // 还没执行、CurrentPath 仍是旧路径，同步会匹配不到目标并清掉侧栏选中且不再恢复，
+        // 表现为「第一次点击无高亮、要点两次」。这里在一切就绪后补发最终通知。
+        OnPropertyChanged(nameof(SourceKind));
     }
 
     public void Navigate(string path, bool recordHistory = true)
@@ -320,7 +486,8 @@ public sealed partial class MountTabViewModel : ObservableObject
         if (IsComputer)
         {
             RootPath = Path.GetPathRoot(path) ?? path;
-            Space.Path = RootPath;
+            // 只写临时空间，绝不能改配置里工作空间的 Path
+            _transientSpace.Path = RootPath;
         }
         CurrentPath = path;
         AddressText = path;
@@ -339,7 +506,8 @@ public sealed partial class MountTabViewModel : ObservableObject
             _forward.Clear();
         }
         RootPath = ComputerPath;
-        Space.Path = ComputerPath;
+        // 只写临时空间，绝不能改配置里工作空间的 Path
+        _transientSpace.Path = ComputerPath;
         CurrentPath = ComputerPath;
         AddressText = ComputerPath;
         LoadComputer();
@@ -528,8 +696,9 @@ public sealed partial class MountTabViewModel : ObservableObject
 
     private void CopySelected()
     {
-        if (SelectedFile is null) return;
-        _clipboardPaths = new List<string> { SelectedFile.FullPath };
+        var selection = EffectiveSelection();
+        if (selection.Count == 0) return;
+        _clipboardPaths = selection.Select(f => f.FullPath).ToList();
         _clipboardIsCut = false;
         _clipboardSourceDirectory = string.Empty;
         PasteCommand.NotifyCanExecuteChanged();
@@ -537,8 +706,9 @@ public sealed partial class MountTabViewModel : ObservableObject
 
     private void CutSelected()
     {
-        if (SelectedFile is null) return;
-        _clipboardPaths = new List<string> { SelectedFile.FullPath };
+        var selection = EffectiveSelection();
+        if (selection.Count == 0) return;
+        _clipboardPaths = selection.Select(f => f.FullPath).ToList();
         _clipboardIsCut = true;
         _clipboardSourceDirectory = CurrentPath;
         PasteCommand.NotifyCanExecuteChanged();
@@ -602,11 +772,14 @@ public sealed partial class MountTabViewModel : ObservableObject
 
     private void DeleteSelectedCore(bool permanent)
     {
-        if (SelectedFile is null) return;
+        var selection = EffectiveSelection();
+        if (selection.Count == 0) return;
         var label = permanent ? "永久删除" : "移到回收站";
-        var confirmMsg = permanent
-            ? $"确定要永久删除“{SelectedFile.Name}”吗？此操作无法撤销。"
-            : $"确定要把“{SelectedFile.Name}”移到回收站吗？";
+        var confirmMsg = selection.Count == 1
+            ? (permanent
+                ? $"确定要永久删除“{selection[0].Name}”吗？此操作无法撤销。"
+                : $"确定要把“{selection[0].Name}”移到回收站吗？")
+            : $"确定要把选中的 {selection.Count} 个项{label}吗？";
         var result = System.Windows.MessageBox.Show(
             confirmMsg, $"KBEA - {label}",
             System.Windows.MessageBoxButton.YesNo,
@@ -614,14 +787,17 @@ public sealed partial class MountTabViewModel : ObservableObject
         if (result != System.Windows.MessageBoxResult.Yes) return;
         try
         {
-            var path = SelectedFile.FullPath;
             var opts = permanent
                 ? Microsoft.VisualBasic.FileIO.RecycleOption.DeletePermanently
                 : Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin;
-            if (SelectedFile.IsDirectory)
-                Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(path, Microsoft.VisualBasic.FileIO.UIOption.AllDialogs, opts);
-            else
-                Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(path, Microsoft.VisualBasic.FileIO.UIOption.AllDialogs, opts);
+            foreach (var file in selection)
+            {
+                if (file.IsDirectory)
+                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(file.FullPath, Microsoft.VisualBasic.FileIO.UIOption.AllDialogs, opts);
+                else
+                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(file.FullPath, Microsoft.VisualBasic.FileIO.UIOption.AllDialogs, opts);
+            }
+            SelectedFile = null;
             Refresh();
         }
         catch (OperationCanceledException)
@@ -687,19 +863,23 @@ public sealed partial class MountTabViewModel : ObservableObject
         System.Windows.MessageBox.Show($"已请求添加文件夹：{folder}\n\n请在主界面点击“＋ 新建空间”完成添加。", "KBEA");
     }
 
-    /// <summary>外部文件拖入：将文件复制到当前目录。</summary>
+    /// <summary>外部文件拖入：将文件复制到当前目录。跳过与目标相同的路径（应用内拖拽松手在原目录的自复制）。</summary>
     public void HandleFilesDropped(IReadOnlyList<string> paths)
     {
         try
         {
+            var moved = false;
             foreach (var path in paths)
             {
                 var name = Path.GetFileName(path);
                 var target = Path.Combine(CurrentPath, name);
+                // 自复制防护：拖拽源就在当前目录（如拖拽循环被右键打断后松手），无意义且必然抛异常
+                if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase)) continue;
                 if (File.Exists(path)) File.Copy(path, target, overwrite: true);
                 else if (Directory.Exists(path)) CopyDirectoryRecursive(path, target);
+                moved = true;
             }
-            Refresh();
+            if (moved) Refresh();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -744,4 +924,7 @@ public sealed class FolderNodeViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
+
+    /// <summary>UIA/读屏等场景用目录名作为元素名（默认 ToString 会暴露类名）。</summary>
+    public override string ToString() => Name;
 }

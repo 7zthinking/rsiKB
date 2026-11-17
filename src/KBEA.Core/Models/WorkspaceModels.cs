@@ -21,6 +21,14 @@ public sealed class AppConfiguration
     public List<Organization> Organizations { get; set; } = [];
     public List<OrganizationShare> OrganizationShares { get; set; } = [];
 
+    // ---- 团队共享（共享设置页；改动重启后生效） ----
+    /// <summary>团队文件内容缓存限额（GB，LRU 淘汰）。</summary>
+    public double TeamCacheLimitGb { get; set; } = 2;
+    /// <summary>团队 manifest 同步间隔（分钟）。</summary>
+    public int TeamSyncIntervalMinutes { get; set; } = 5;
+    /// <summary>团队共享服务起始端口（被占用时自动向后尝试）。</summary>
+    public int TeamServicePort { get; set; } = 52235;
+
     /// <summary>旧结构（空间装目录），仅用于一次性迁移；迁移完成后会被清空。</summary>
     public List<WorkspaceDefinition> Workspaces { get; set; } = [];
 
@@ -39,7 +47,23 @@ public sealed class SpaceDefinition
     public bool AutoSync { get; set; }
     public DateTimeOffset? LastSyncAt { get; set; }
     public bool IsRemote => !string.IsNullOrWhiteSpace(RemoteUrl);
+
+    /// <summary>空间类型：本地空间 / 团队引用空间（来自团队共享的目录）。</summary>
+    public SpaceKind Kind { get; set; } = SpaceKind.Local;
+
+    // ---- 团队引用空间（Kind = TeamLink）----
+    public string TeamId { get; set; } = string.Empty;
+    public string OwnerMachineCode { get; set; } = string.Empty;
+    public Guid RemoteSpaceId { get; set; }
+
+    /// <summary>团队引用空间：镜像在本地，但实体归团队 owner；禁止再共享给其他团队。</summary>
+    public bool IsTeamLink => Kind == SpaceKind.TeamLink;
+
+    /// <summary>是否允许共享给团队（团队引用空间不允许再共享）。</summary>
+    public bool IsShareable => Kind == SpaceKind.Local;
 }
+
+public enum SpaceKind { Local, TeamLink }
 
 /// <summary>目录：空间的逻辑分组，可嵌套。空间归属某个目录，未归属的显示在根层。</summary>
 public sealed class DirectoryDefinition
@@ -152,6 +176,12 @@ public sealed record GitSnapshot(GitStatusInfo Status, IReadOnlyDictionary<strin
     public static GitSnapshot Empty { get; } = new(
         new GitStatusInfo(false, 0, string.Empty, string.Empty, 0),
         new Dictionary<string, string>());
+}
+
+/// <summary>HEAD 基线文件内容：用于版本比对。Found=false 表示 HEAD 中不存在（新文件）。</summary>
+public sealed record HeadFileContent(bool Found, bool IsBinary, string Text)
+{
+    public static HeadFileContent Missing { get; } = new(false, false, string.Empty);
 }
 
 public sealed record ArchiveRecord(

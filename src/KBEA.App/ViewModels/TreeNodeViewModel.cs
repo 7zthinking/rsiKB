@@ -23,6 +23,11 @@ public sealed class WorkspaceNodeViewModel : ObservableObject
     public SpaceDefinition? Space { get; init; }
     public ObservableCollection<WorkspaceNodeViewModel> Children { get; } = [];
     public bool IsExpanded { get; set; } = true;
-    public string Icon => Kind == WorkspaceNodeKind.Directory ? "◫" : "▣";
-    public string Badge => Kind == WorkspaceNodeKind.Space && Space is not null && !System.IO.Directory.Exists(Space.Path) ? "离线" : string.Empty;
+    public bool IsTeamLink => Kind == WorkspaceNodeKind.Space && Space?.IsTeamLink == true;
+    public string Icon => Kind == WorkspaceNodeKind.Directory ? "◫" : IsTeamLink ? "⇄" : "▣";
+    public string Badge => Kind == WorkspaceNodeKind.Space && Space is not null && !System.IO.Directory.Exists(Space.Path) ? "离线"
+        : IsTeamLink ? "团队" : string.Empty;
+
+    /// <summary>UIA/读屏等场景用节点名作为元素名（默认 ToString 会暴露类名）。</summary>
+    public override string ToString() => Name;
 }

@@ -44,11 +44,88 @@ public partial class MainWindow : Window
     /// <summary>侧栏切换时，清空 WorkspaceTree 的视觉选中高亮。</summary>
     private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MainViewModel.SelectedNode) && ViewModel.SelectedNode is null)
+        // 视觉同步延迟到 Dispatcher：VM 侧「先清后设」会在同一个事件栈里发出两次变更，
+        // 同步执行会与 WPF 选择状态机（TreeViewItem.IsSelected / ListBox.SelectedItem 的事件重入）打架，
+        // 导致第一次点击的高亮被清掉。延迟执行保证最终视觉状态 = 最后一次 VM 赋值。
+        if (e.PropertyName == nameof(MainViewModel.SelectedNode))
         {
-            // SelectedNode 被 VM 设为 null → TreeView 也要清掉视觉选中
-            ClearTreeViewSelection(WorkspaceTree);
+            Dispatcher.BeginInvoke(new Action(() => SyncTreeSelection(ViewModel.SelectedNode)), System.Windows.Threading.DispatcherPriority.Background);
         }
+        else if (e.PropertyName == nameof(MainViewModel.SelectedLocalFolder))
+        {
+            Dispatcher.BeginInvoke(new Action(() => SyncLocalSidebarSelection(ViewModel.SelectedLocalFolder)), System.Windows.Threading.DispatcherPriority.Background);
+        }
+        else if (e.PropertyName == nameof(MainViewModel.SelectedRemoteLocation))
+        {
+            Dispatcher.BeginInvoke(new Action(() => SyncRemoteSidebarSelection(ViewModel.SelectedRemoteLocation)), System.Windows.Threading.DispatcherPriority.Background);
+        }
+    }
+
+    /// <summary>把 TreeView 的视觉选中同步到 VM 的选中节点；target 为 null 时清空全部选中。</summary>
+    private void SyncTreeSelection(KBEA.App.ViewModels.WorkspaceNodeViewModel? target)
+    {
+        _syncingSidebarSelection = true;
+        try
+        {
+            var found = target is not null && SelectTreeItem(WorkspaceTree, target);
+            if (!found) ClearTreeViewSelection(WorkspaceTree);
+        }
+        finally { _syncingSidebarSelection = false; }
+    }
+
+    private static bool SelectTreeItem(ItemsControl parent, KBEA.App.ViewModels.WorkspaceNodeViewModel target)
+    {
+        foreach (var item in parent.Items)
+        {
+            if (parent.ItemContainerGenerator.ContainerFromItem(item) is not TreeViewItem container) continue;
+            if (ReferenceEquals(container.DataContext, target) || item == target)
+            {
+                if (!container.IsSelected) container.IsSelected = true;
+                return true;
+            }
+            if (SelectTreeItem(container, target)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>把本地侧栏的选中项同步到标签切换带来的目标目录（不触发打开）。target 为 null 时清空选中。</summary>
+    private void SyncLocalSidebarSelection(LocalFolderViewModel? target)
+    {
+        _syncingSidebarSelection = true;
+        try
+        {
+            foreach (var list in new[] { QuickList, RecentList })
+            {
+                var current = list.SelectedItem as LocalFolderViewModel;
+                // 已是目标（同一路径）：不动。逐项遍历设值会先清后设，造成"点击后高亮闪一下"的观感
+                if (current is not null && target is not null && current.FullPath.Equals(target.FullPath, StringComparison.OrdinalIgnoreCase)) continue;
+                // 同一路径可能在 Quick/Recent 两个集合里各有一个实例（非同一引用），按路径匹配
+                LocalFolderViewModel? matchInList = target is null
+                    ? null
+                    : list.Items.OfType<LocalFolderViewModel>().FirstOrDefault(x => x.FullPath.Equals(target.FullPath, StringComparison.OrdinalIgnoreCase));
+                list.SelectedItem = matchInList;
+            }
+        }
+        finally { _syncingSidebarSelection = false; }
+    }
+
+    /// <summary>把共享目录面板的选中项同步到当前标签绑定的远程位置（不触发打开）。target 为 null 时清空选中。</summary>
+    private void SyncRemoteSidebarSelection(KBEA.Core.Models.RemoteLocationDefinition? target)
+    {
+        _syncingSidebarSelection = true;
+        try
+        {
+            foreach (var list in new[] { RemoteListInLocal, RemoteListInShared })
+            {
+                var current = list.SelectedItem as KBEA.Core.Models.RemoteLocationDefinition;
+                if (current is not null && target is not null && ReferenceEquals(current, target)) continue;
+                KBEA.Core.Models.RemoteLocationDefinition? matchInList = target is null
+                    ? null
+                    : list.Items.OfType<KBEA.Core.Models.RemoteLocationDefinition>().FirstOrDefault(x => ReferenceEquals(x, target));
+                list.SelectedItem = matchInList;
+            }
+        }
+        finally { _syncingSidebarSelection = false; }
     }
 
     private static void ClearTreeViewSelection(TreeView tree)
@@ -110,7 +187,12 @@ public partial class MainWindow : Window
                 if (tab.PasteCommand.CanExecute(null)) { tab.PasteCommand.Execute(null); e.Handled = true; }
                 break;
             case Key.A when ctrl && !shift && !alt:
-                // Ctrl+A 让 DataGrid 默认处理全选行，但如果焦点不在 DataGrid 上就忽略
+                // 文件列表全选：焦点在文件表格内时由这里接管（右键菜单的「全选」走 FilesSelectAll_Click）
+                if (FilesDataGrid.IsKeyboardFocusWithin)
+                {
+                    FilesDataGrid.SelectAll();
+                    e.Handled = true;
+                }
                 break;
             case Key.Delete when !shift && !alt:
                 // Delete → 放回收站（默认）
@@ -309,6 +391,8 @@ public partial class MainWindow : Window
 
     private void WorkspaceTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
+        // 程序化同步（SyncTreeSelection 设 IsSelected）时不回写 VM，避免重入打开
+        if (_syncingSidebarSelection) return;
         if (e.NewValue is WorkspaceNodeViewModel node) ViewModel.SelectedNode = node;
     }
 
@@ -405,8 +489,16 @@ public partial class MainWindow : Window
 
     private void RemoteList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_syncingSidebarSelection) return;
         if (sender is ListBox { SelectedItem: KBEA.Core.Models.RemoteLocationDefinition location })
             ViewModel.OpenRemoteLocationCommand.Execute(location);
+    }
+
+    /// <summary>点击团队共享条目 = 打开（取回内容；完整浏览用「＋我的」建立引用空间）。</summary>
+    private void SharedSpace_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ViewModels.SharedSpaceItem item })
+            ViewModel.OpenTeamShareNodeCommand.Execute(item);
     }
 
     private void FavoriteList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -479,6 +571,15 @@ public partial class MainWindow : Window
     private FileEntry? _filesDragSource;
     private bool _isFilesDragging;
 
+    /// <summary>多选集合同步到当前 Tab VM（Copy/Cut/Delete 按多选批量执行）。</summary>
+    private void FilesDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ViewModel.SelectedTab is { } tab)
+            tab.SelectedFiles = FilesDataGrid.SelectedItems.OfType<FileEntry>().ToList();
+    }
+
+    private void FilesSelectAll_Click(object sender, RoutedEventArgs e) => FilesDataGrid.SelectAll();
+
     private void FilesDataGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         _filesDragStart = e.GetPosition(FilesDataGrid);
@@ -486,12 +587,21 @@ public partial class MainWindow : Window
         _isFilesDragging = false;
         if (e.OriginalSource is not DependencyObject source) return;
         var row = FindParent<DataGridRow>(source);
-        if (row?.Item is FileEntry file) _filesDragSource = file;
+        if (row?.Item is FileEntry file) { _filesDragSource = file; return; }
+        // 点在空白处（行外）：清除选中，与资源管理器行为一致
+        if (FindParent<System.Windows.Controls.DataGridCell>(source) is null)
+        {
+            FilesDataGrid.SelectedItem = null;
+            if (ViewModel.SelectedTab is { } tab) tab.SelectedFile = null;
+        }
     }
 
     private void FilesDataGrid_PreviewMouseMove(object sender, MouseEventArgs e)
     {
         if (_isFilesDragging || e.LeftButton != MouseButtonState.Pressed || _filesDragSource is null) return;
+        // 右键按住时（正要弹出/已弹出右键菜单）绝不启动 OLE 拖拽循环，
+        // 否则菜单关闭后的鼠标释放会被 OLE 当作“放下”，触发一次意外的自复制 Drop
+        if (e.RightButton == MouseButtonState.Pressed) return;
         var pos = e.GetPosition(FilesDataGrid);
         if (Math.Abs(pos.X - _filesDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
             Math.Abs(pos.Y - _filesDragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;

@@ -63,6 +63,24 @@ function Get-Button([Windows.Automation.AutomationElement]$window, [string]$text
     throw "Button not found: $text"
 }
 
+function Get-VisibleButton([Windows.Automation.AutomationElement]$window, [string]$text) {
+    # Collapsed panels keep their buttons in the UIA tree (only IsOffscreen flips),
+    # so "the panel switched" must be judged by visibility, not by element presence.
+    for ($attempt = 0; $attempt -lt 6; $attempt++) {
+        $elements = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+        $button = @($elements | Where-Object {
+            $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and
+            ($_.Current.Name -like "*$text*") -and
+            (-not $_.Current.IsOffscreen) -and
+            ($_.Current.BoundingRectangle.Width -gt 0) -and
+            ($_.Current.BoundingRectangle.Height -gt 0)
+        }) | Select-Object -First 1
+        if ($null -ne $button) { return $button }
+        Start-Sleep -Milliseconds 400
+    }
+    throw "Visible button not found: $text"
+}
+
 function Get-GitButtons([Windows.Automation.AutomationElement]$window) {
     $elements = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
     $buttons = @($elements | Where-Object {
@@ -73,7 +91,10 @@ function Get-GitButtons([Windows.Automation.AutomationElement]$window) {
 }
 
 function Invoke-Button([Windows.Automation.AutomationElement]$window, [string]$text) {
-    $button = Get-Button $window $text
+    # 优先点可见的同名按钮：折叠面板里的按钮仍留在 UIA 树里（只是 IsOffscreen），
+    # 按它们的坐标点击会落到别的控件上。
+    $button = $null
+    try { $button = Get-VisibleButton $window $text } catch { $button = Get-Button $window $text }
     # 统一走真实鼠标点击：
     # 1) 跨进程 Invoke 打开模态窗口后，UIA 树会残缺（COM 重入假象），后续枚举不可靠；
     # 2) InvokePattern.Invoke 偶发不触发 Command；
@@ -97,19 +118,20 @@ function Set-Address([Windows.Automation.AutomationElement]$window, [string]$pat
 }
 
 function Get-Dialog([string]$title) {
+    # 只按名字精确匹配本进程的窗口。绝不 fallback 到"最后一个窗口"——
+    # 那会把无名的辅助窗口（name=''、descendants=0）当成对话框返回，掩盖真实失败。
+    $appWindows = @()
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
         $windows = [Windows.Automation.AutomationElement]::RootElement.FindAll(
             [Windows.Automation.TreeScope]::Descendants,
             [Windows.Automation.Condition]::TrueCondition)
         $appWindows = @($windows | Where-Object { $_.Current.ProcessId -eq $process.Id -and $_.Current.ControlType -eq [Windows.Automation.ControlType]::Window })
         $dialog = @($appWindows | Where-Object { $_.Current.Name -eq $title }) | Select-Object -First 1
-        if ($null -eq $dialog -and $appWindows.Count -gt 1) { $dialog = $appWindows | Select-Object -Last 1 }
         if ($null -ne $dialog) { return $dialog }
         Start-Sleep -Milliseconds 200
     }
     [Console]::WriteLine("DEBUG process=$($process.Id) appWindows=$($appWindows.Count)")
-    $namedWindows = @($windows | Where-Object { $_.Current.Name -eq $title })
-    [Console]::WriteLine("DEBUG namedWindows=$($namedWindows.Count) namedPids=$($namedWindows.Current.ProcessId -join ',')")
+    [Console]::WriteLine("DEBUG appWindowNames=" + (@($appWindows | ForEach-Object { '[' + $_.Current.Name + ']' }) -join ' '))
     Add-Type -AssemblyName System.Drawing
     $bounds = [Windows.Automation.AutomationElement]::RootElement.Current.BoundingRectangle
     $bitmap = [Drawing.Bitmap]::new([int]$bounds.Width, [int]$bounds.Height)
@@ -119,6 +141,32 @@ function Get-Dialog([string]$title) {
     $graphics.Dispose()
     $bitmap.Dispose()
     throw "Dialog not found: $title"
+}
+
+function Dump-SidebarState($window, [string]$label) {
+    $elements = $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+    $names = @(
+        (-join ([char[]](0x5DE5, 0x4F5C, 0x7A7A, 0x95F4))),
+        (-join ([char[]](0x672C, 0x5730, 0x76EE, 0x5F55))),
+        (-join ([char[]](0x5171, 0x4EAB, 0x76EE, 0x5F55)))
+    )
+    foreach ($name in $names) {
+        $toggle = @($elements | Where-Object {
+            $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $_.Current.Name -eq $name
+        }) | Select-Object -First 1
+        $state = 'n/a'
+        if ($null -ne $toggle) {
+            try { $state = $toggle.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Current.ToggleState } catch { $state = 'no-pattern' }
+        }
+        [Console]::WriteLine("DEBUG sidebar[$label] toggle[$name] = $state")
+    }
+    $newSpace = -join ([char[]](0x65B0, 0x5EFA, 0x7A7A, 0x95F4))
+    foreach ($e in $elements) {
+        if ($e.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $e.Current.Name -like "*$newSpace*") {
+            $r = $e.Current.BoundingRectangle
+            [Console]::WriteLine("DEBUG sidebar[$label] new-space btn offscreen={0} rect={1},{2} {3}x{4}" -f $e.Current.IsOffscreen, [int]$r.X, [int]$r.Y, [int]$r.Width, [int]$r.Height)
+        }
+    }
 }
 
 function Set-FirstEdit([Windows.Automation.AutomationElement]$window, [string]$text) {
@@ -136,6 +184,24 @@ function Test-VisibleText([Windows.Automation.AutomationElement]$window, [string
 
 try {
     $window = Get-AppWindow
+    # Startup now lands on the welcome page (no tab auto-opened).
+    # Open the fixture space from the sidebar tree, like a user would.
+    $fixtureSpace = 'Smoke Fixture'
+    # 窗口刚出现时 UIA 全树枚举可能抛元素失效异常（实测），先延时并对单次枚举容错
+    Start-Sleep -Milliseconds 2500
+    $treeItem = $null
+    for ($attempt = 0; $attempt -lt 15 -and $null -eq $treeItem; $attempt++) {
+        try {
+            $treeItems = @($window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) | Where-Object {
+                $_.Current.ControlType -eq [Windows.Automation.ControlType]::TreeItem -and $_.Current.Name -like "*$fixtureSpace*"
+            })
+            $treeItem = $treeItems | Select-Object -First 1
+        } catch { $treeItem = $null }
+        if ($null -eq $treeItem) { Start-Sleep -Milliseconds 500 }
+    }
+    if ($null -eq $treeItem) { throw 'The fixture space node was not found in the workspace tree.' }
+    $treeItem.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    Start-Sleep -Milliseconds 1500
     $pullName = -join ([char[]](0x62C9, 0x53D6, 0x66F4, 0x65B0))
     $pull = Get-Button $window $pullName
     if (-not $pull.Current.IsEnabled) {
@@ -163,9 +229,17 @@ try {
     if ($plusButtons.Count -ne 1) { throw 'The new-tab button was not uniquely identified.' }
     $plusButtons[0].GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Milliseconds 1000
-    $computer = -join ([char[]](0x6211, 0x7684, 0x7535, 0x8111))
-    if (-not (Test-VisibleText $window $computer)) { throw 'New tab did not open My Computer.' }
-    Write-Output 'PASS New tab opens My Computer'
+    # 新标签默认跟随第一个工作空间（无工作空间时才退到"我的电脑"）
+    $fixtureName = 'Smoke Fixture'
+    $tabItems = @($window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) | Where-Object {
+        $_.Current.ControlType -eq [Windows.Automation.ControlType]::TabItem
+    })
+    $realTabs = @($tabItems | Where-Object { $_.Current.Name -and $_.Current.Name -notlike "*$newTabName*" })
+    if ($realTabs.Count -lt 1) { throw 'The new tab was not created.' }
+    if (-not (@($realTabs | Where-Object { $_.Current.Name -like "*$fixtureName*" }).Count -ge 1)) {
+        throw 'The new tab did not follow the first workspace.'
+    }
+    Write-Output 'PASS New tab follows the first workspace'
 
     $windowPattern = $window.GetCurrentPattern([Windows.Automation.WindowPattern]::Pattern)
     $windowPattern.Close()
@@ -197,7 +271,7 @@ try {
     $newWorkspace = -join ([char[]](0x65B0, 0x5EFA, 0x7A7A, 0x95F4))
     $workspaceReady = $false
     for ($attempt = 0; $attempt -lt 5; $attempt++) {
-        try { $null = Get-Button $window $newWorkspace; $workspaceReady = $true; break }
+        try { $null = Get-VisibleButton $window $newWorkspace; $workspaceReady = $true; break }
         catch { Invoke-Button $window $workspace; Start-Sleep -Milliseconds 600 }
     }
     if (-not $workspaceReady) { throw 'Workspace toolbar did not appear after selecting the workspace tab.' }
@@ -205,9 +279,14 @@ try {
 
     $newWorkspaceTitle = -join ([char[]](0x65B0, 0x5EFA, 0x7A7A, 0x95F4))
     $createWorkspace = -join ([char[]](0x521B, 0x5EFA, 0x7A7A, 0x95F4))
-    # InvokePattern.Invoke 偶发不触发 Command（与前台切换时序相关），重试直到对话框出现
+    # 真实鼠标点击偶发不触发 Command（与前台切换时序相关），重试直到对话框出现。
+    # 每次点击前打印按钮状态，便于定位点击落空的原因。
     $dialog = $null
-    for ($attempt = 0; $attempt -lt 3 -and $null -eq $dialog; $attempt++) {
+    for ($attempt = 0; $attempt -lt 5 -and $null -eq $dialog; $attempt++) {
+        Dump-SidebarState $window "click-$attempt"
+        $probe = Get-VisibleButton $window $newWorkspace
+        $pr = $probe.Current.BoundingRectangle
+        [Console]::WriteLine("DEBUG click-$attempt btn rect={0},{1} {2}x{3} enabled={4}" -f [int]$pr.X, [int]$pr.Y, [int]$pr.Width, [int]$pr.Height, $probe.Current.IsEnabled)
         Invoke-Button $window $newWorkspace
         try { $dialog = Get-Dialog $newWorkspaceTitle } catch { Start-Sleep -Milliseconds 800; $dialog = $null }
     }
@@ -215,18 +294,26 @@ try {
     $selectFolder = -join ([char[]](0x9009, 0x62E9, 0x6587, 0x4EF6, 0x5939))
     $gitButton = -join ([char[]](0x5173, 0x8054, 0x20, 0x47, 0x69, 0x74, 0x20, 0x4ED3, 0x5E93))
     $dialogElements = $null
-    # 模态对话框打开初期 UIA 内部树短暂残缺（COM 重入），重新获取引用并重试枚举
+    # 模态对话框打开初期 UIA 内部树短暂残缺（COM 重入），重新获取引用并重试枚举。
+    # 关键：复用已经拿到的 $dialog 元素，不要再调 Get-Dialog —— 跨进程枚举过一次之后，
+    # RootElement 的 Descendants 查询会返回残缺的树，把对话框整个漏掉。
     $dialogReady = $false
     for ($attempt = 0; $attempt -lt 8; $attempt++) {
         try {
-            $dialog = Get-Dialog $newWorkspaceTitle
+            [Console]::WriteLine("DEBUG dialog attempt=$attempt name='$($dialog.Current.Name)'")
             $dialogElements = $dialog.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)
+            [Console]::WriteLine("DEBUG dialog attempt=$attempt descendants=$($dialogElements.Count)")
             $null = Get-Button $dialog $selectFolder
             $null = Get-Button $dialog $gitButton
             $dialogReady = $true
             break
         }
-        catch { Start-Sleep -Milliseconds 700 }
+        catch {
+            [Console]::WriteLine("DEBUG dialog attempt=$attempt failed: $($_.Exception.Message)")
+            Start-Sleep -Milliseconds 700
+            # 重新取一次对话框引用（元素可能已被重建）
+            try { $dialog = Get-Dialog $newWorkspaceTitle; [Console]::WriteLine("DEBUG dialog reacquired") } catch { [Console]::WriteLine("DEBUG dialog reacquire failed") }
+        }
     }
     if (-not $dialogReady) { throw 'Workspace dialog internals were not visible.' }
     if (@($dialogElements | Where-Object { $_.Current.ControlType -eq [Windows.Automation.ControlType]::RadioButton }).Count -ne 0) {

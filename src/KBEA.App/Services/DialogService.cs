@@ -42,9 +42,9 @@ public sealed class DialogService : IDialogService
         return dialog.ShowDialog() == true ? dialog.Value : null;
     }
 
-    public SpaceDialogResult? ShowEditSpace(string name)
+    public SpaceDialogResult? ShowEditSpace(string name, string? currentPath = null, Guid? preselectDirectoryId = null)
     {
-        var dialog = new SpaceWindow(name, _git, _directories) { Owner = Application.Current.MainWindow };
+        var dialog = new SpaceWindow(name, _git, _directories, preselectDirectoryId, currentPath) { Owner = Application.Current.MainWindow };
         return dialog.ShowDialog() == true ? dialog.Value : null;
     }
 
@@ -65,7 +65,7 @@ public sealed class DialogService : IDialogService
         var status = _git.GetStatus(repositoryPath);
         var entries = status.IsRepository ? _git.GetDetailedStatus(repositoryPath) : Array.Empty<KBEA.Core.Models.GitStatusEntry>();
         var commits = status.IsRepository ? _git.GetHistory(repositoryPath) : Array.Empty<KBEA.Core.Models.GitCommitInfo>();
-        var dialog = new GitHistoryWindow(title, status, entries, commits) { Owner = Application.Current.MainWindow };
+        var dialog = new GitHistoryWindow(title, repositoryPath, status, entries, commits) { Owner = Application.Current.MainWindow };
         dialog.ShowDialog();
     }
 
@@ -73,6 +73,13 @@ public sealed class DialogService : IDialogService
     {
         var dialog = new RecordListWindow(title, records) { Owner = Application.Current.MainWindow };
         dialog.ShowDialog();
+    }
+
+    public void ShowTeamManager(TeamShareService teamService, AppConfiguration configuration, Action onChanged)
+    {
+        var dialog = new TeamManagementWindow(teamService, configuration, this) { Owner = Application.Current.MainWindow };
+        dialog.ShowDialog();
+        onChanged();
     }
 
     public IGitProgress BeginGitOperation(string title, string subtitle)

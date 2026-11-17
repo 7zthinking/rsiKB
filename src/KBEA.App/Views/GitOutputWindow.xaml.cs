@@ -42,7 +42,7 @@ public partial class GitOutputWindow : Window
 
     private void Copy_Click(object sender, RoutedEventArgs e)
     {
-        try { Clipboard.SetText(OutputBox.Text); } catch { }
+        try { Services.ClipboardHelper.TrySetText(OutputBox.Text); } catch { }
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

@@ -16,10 +16,11 @@ public partial class SpaceWindow : Window
     private readonly Guid? _preselectDirectoryId;
     private bool _gitAutoFilled; // 标记远程地址是否由 Git 自动填入（自动填入时锁死）
 
-    public SpaceWindow(string? existingName = null, GitService? git = null, List<DirectoryDefinition>? directories = null, Guid? preselectDirectoryId = null)
+    public SpaceWindow(string? existingName = null, GitService? git = null, List<DirectoryDefinition>? directories = null, Guid? preselectDirectoryId = null, string? existingPath = null)
     {
         InitializeComponent();
         _originalName = existingName ?? string.Empty;
+        _originalPath = existingPath;
         _git = git;
         _directories = directories ?? [];
         _preselectDirectoryId = preselectDirectoryId;
@@ -27,21 +28,41 @@ public partial class SpaceWindow : Window
         LoadDirectories();
         if (existingName is not null)
         {
-            Title = "空间信息";
-            Heading.Text = "空间信息";
-            Description.Text = "可以修改名称或删除这个空间。删除空间不会删除其中的资料文件。";
+            Title = "编辑空间";
+            Heading.Text = "编辑空间";
+            Description.Text = "可以修改名称、重新绑定物理位置或删除这个空间。重新绑定后，原位置的元数据会被清除，新位置会重新建立元数据；资料文件不受影响。";
             RemoteOptions.Visibility = Visibility.Collapsed;
             GitOptions.Visibility = Visibility.Collapsed;
             DeleteButton.Visibility = Visibility.Visible;
             SaveButton.Content = "保存修改";
-            Height = 320;
+            // 编辑模式显示当前绑定的位置，允许重新选择
+            if (!string.IsNullOrEmpty(existingPath) && Directory.Exists(existingPath))
+            {
+                FolderPathText.Tag = existingPath;
+                FolderPathText.Text = existingPath;
+                FolderPathText.Foreground = Foreground;
+            }
+            Height = 480;
         }
         UpdateSaveState();
         Loaded += (_, _) => { NameBox.Focus(); NameBox.SelectAll(); };
     }
 
     public SpaceDialogResult? Value { get; private set; }
+    private readonly string? _originalPath;
     private string FolderPath => FolderPathText.Tag as string ?? string.Empty;
+
+    /// <summary>编辑模式下用户重新选择的绑定位置；与原位置相同或未选择时为 null。</summary>
+    public string? RebindPath
+    {
+        get
+        {
+            if (_originalPath is null) return null;
+            var current = FolderPath;
+            if (string.IsNullOrWhiteSpace(current)) return null;
+            return current.TrimEnd('\\').Equals(_originalPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) ? null : current;
+        }
+    }
 
     private void LoadDirectories()
     {
@@ -179,7 +200,14 @@ public partial class SpaceWindow : Window
             return;
         }
         var directoryId = (DirectoryBox.SelectedItem as DirectoryOption)?.Id;
-        Value = new SpaceDialogResult(name, _originalName.Length == 0 ? FolderPath : string.Empty, RemoteUrlBox.Text.Trim(), SelectedRemoteKind, directoryId);
+        // 新建模式：Path 必填；编辑模式：Path 不变，重新绑定的位置走 NewPath
+        Value = new SpaceDialogResult(
+            name,
+            _originalName.Length == 0 ? FolderPath : string.Empty,
+            RemoteUrlBox.Text.Trim(),
+            SelectedRemoteKind,
+            directoryId,
+            NewPath: _originalName.Length == 0 ? null : RebindPath);
         DialogResult = true;
     }
 

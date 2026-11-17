@@ -22,6 +22,20 @@ public sealed class MetadataStore
     public string MetadataPath { get; }
     public string DatabasePath { get; }
 
+    /// <summary>删除某个位置的全部元数据（.7z 目录）。用于空间重新绑定位置时清理旧位置。</summary>
+    public static void Cleanup(string mountPath)
+    {
+        var metadataDirectory = Path.Combine(Path.GetFullPath(mountPath), ".7z");
+        if (!Directory.Exists(metadataDirectory)) return;
+        // 只删 .7z 元数据目录本身；资料文件在挂载根下，不受影响
+        foreach (var file in Directory.EnumerateFiles(metadataDirectory, "*", SearchOption.AllDirectories))
+        {
+            try { File.SetAttributes(file, FileAttributes.Normal); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+        try { File.SetAttributes(metadataDirectory, FileAttributes.Directory); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        Directory.Delete(metadataDirectory, recursive: true);
+    }
+
     public void Initialize()
     {
         Directory.CreateDirectory(_mountPath);
