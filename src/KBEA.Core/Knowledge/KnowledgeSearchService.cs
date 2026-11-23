@@ -115,6 +115,8 @@ public sealed class KnowledgeSearchService
                 foreach (var entry in candidates)
                 {
                     if (!ftsScores.TryGetValue(entry.Hash, out var textScore)) continue;
+                    // 代码类文件自然语言密度低，正文匹配可信度差：语义分降权，避免淹没文档类结果
+                    if (IsLowDensityFormat(entry.Format)) textScore *= 0.5;
                     hits.Add(BuildHit(entry, BaseScore + textScore + TagBonus(entry, parsed)));
                 }
             }
@@ -135,23 +137,39 @@ public sealed class KnowledgeSearchService
             .Take(topK)
             .ToList();
 
-        // L4 版本簇展开
+        // L4 版本簇折叠：同簇版本只保留一条代表（最新/完整版优先），其余版本收进代表条目的 Siblings
         if (expandVersions)
         {
             var byCluster = entries
                 .Where(e => !string.IsNullOrEmpty(e.ClusterId))
                 .GroupBy(e => e.ClusterId!)
                 .ToDictionary(g => g.Key, g => g.ToList());
+
+            var merged = new List<SearchHit>();
+            var consumedClusters = new HashSet<string>(StringComparer.Ordinal);
             foreach (var hit in ordered)
             {
-                if (string.IsNullOrEmpty(hit.ClusterId)) continue;
-                if (!byCluster.TryGetValue(hit.ClusterId, out var members)) continue;
-                hit.Siblings = members
-                    .Where(m => m.Hash != hit.Hash)
+                if (string.IsNullOrEmpty(hit.ClusterId) || !byCluster.TryGetValue(hit.ClusterId, out var members))
+                {
+                    merged.Add(hit);
+                    continue;
+                }
+                if (!consumedClusters.Add(hit.ClusterId)) continue; // 同簇其余成员已被代表条目吸收
+
+                // 代表：簇内最新成员（mtime 最迟；并列时取"最新/完整版"角色者优先）
+                var representative = members
+                    .OrderByDescending(m => m.Mtime)
+                    .ThenByDescending(m => m.Tags.Contains("version/latest") || m.Tags.Contains("version/full") ? 1 : 0)
+                    .First();
+                var rep = BuildHit(representative, Math.Max(hit.Score, ScoreOf(ordered, representative.Hash)));
+                rep.Siblings = members
+                    .Where(m => m.Hash != representative.Hash)
                     .OrderByDescending(m => m.Mtime)
                     .Select(m => BuildHit(m, 0))
                     .ToList();
+                merged.Add(rep);
             }
+            ordered = merged;
         }
 
         return new SearchOutcome
@@ -162,6 +180,12 @@ public sealed class KnowledgeSearchService
             UsedFts = usedFts
         };
     }
+
+    /// <summary>代码类格式：正文自然语言密度低，语义匹配降权。html/json/xml 是序列化文本，不降权。</summary>
+    private static bool IsLowDensityFormat(string format) => format is "code";
+
+    private static double ScoreOf(List<SearchHit> ordered, string hash) =>
+        ordered.FirstOrDefault(h => h.Hash == hash)?.Score ?? 0;
 
     /// <summary>分面过滤：格式、时间窗、页数区间、命名空间标签。</summary>
     private static bool MatchesFacets(CatalogEntry entry, QueryParser.ParsedQuery parsed)

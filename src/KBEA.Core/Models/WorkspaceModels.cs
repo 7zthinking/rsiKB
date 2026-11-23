@@ -135,7 +135,8 @@ public sealed record CatalogResult(
     string SpacePath,
     string RelativePath,
     string FullPath,
-    string FileHash);
+    string DisplaySize,
+    string LastWriteText);
 
 public sealed record FileEntry(
     string Name,

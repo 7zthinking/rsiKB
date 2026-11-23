@@ -25,11 +25,15 @@
   </ItemGroup>
 
   <!-- Compile the same core sources into the test host. This also supports
-       Windows devices whose application-control policy blocks new unsigned DLLs. -->
+       Windows devices whose application-control policy blocks new unsigned DLLs.
+       P2：GitService/GitCli 实现已迁入 kbea-plugin-git，这里以源码方式一并编入
+       （GitServiceTests 直接测实现；LibGit2Sharp 由本项目的 PackageReference 提供）。 -->
   <ItemGroup>
     <Compile Include="..\..\src\KBEA.Core\**\*.cs"
              Exclude="..\..\src\KBEA.Core\obj\**\*;..\..\src\KBEA.Core\bin\**\*"
              Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\KBEA.Plugin.Git\GitService.cs;..\..\src\KBEA.Plugin.Git\GitCli.cs"
+             Link="Core\%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

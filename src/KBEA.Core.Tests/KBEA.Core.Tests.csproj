@@ -11,6 +11,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KBEA.Core\KBEA.Core.csproj" />
+    <!-- Ingest 引擎已随 P3 迁入 kbea-plugin-wiki：e2e 经插件程序集解析 KnowledgeIngestService -->
+    <ProjectReference Include="..\KBEA.Plugin.Wiki\KBEA.Plugin.Wiki.csproj" />
   </ItemGroup>
 
 </Project>

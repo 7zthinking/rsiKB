@@ -25,6 +25,16 @@ public sealed class PluginManager
             .Any(e => e.Equals(normalized, StringComparison.OrdinalIgnoreCase)));
     }
 
+    /// <summary>按扩展名返回全部匹配且启用的插件（按扩展名分发到多插件的开放模式用）。</summary>
+    public IReadOnlyList<IMetadataPlugin> GetPluginsForExtension(string ext)
+    {
+        if (string.IsNullOrWhiteSpace(ext)) return [];
+        var normalized = ext.StartsWith('.') ? ext : "." + ext;
+        normalized = normalized.ToLowerInvariant();
+        return _plugins.Where(p => p.Enabled && p.SupportedExtensions
+            .Any(e => e.Equals(normalized, StringComparison.OrdinalIgnoreCase))).ToList();
+    }
+
     public void Register(IMetadataPlugin plugin)
     {
         if (plugin is null) throw new ArgumentNullException(nameof(plugin));

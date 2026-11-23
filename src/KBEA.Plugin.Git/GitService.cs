@@ -4,7 +4,11 @@ using LibGit2Sharp;
 
 namespace KBEA.Core.Git;
 
-public sealed class GitService
+/// <summary>
+/// Git 能力实现（P2 自 Core 迁入 kbea-plugin-git，docs/plugin-architecture.md §5）。
+/// 命名空间保持 KBEA.Core.Git：模型与契约类型同源，宿主侧只需把消费点换成 IGitOperations。
+/// </summary>
+public sealed class GitService : IGitOperations
 {
     public bool IsRepository(string path) => DiscoverRepositoryRoot(path) is not null;
 

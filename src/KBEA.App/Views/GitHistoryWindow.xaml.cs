@@ -50,7 +50,10 @@ public partial class GitHistoryWindow : Window
     private void CompareButton_Click(object sender, RoutedEventArgs e)
     {
         if (StatusGrid.SelectedItem is not GitStatusEntry entry || string.IsNullOrWhiteSpace(_repositoryPath)) return;
-        var dialog = new ConflictDiffWindow(new GitService(), _repositoryPath, entry.RelativePath) { Owner = this };
+        var git = GitOperationsProvider.Instance;
+        if (git is null) return; // Git 插件未加载
+        // 历史窗口进入的比对为只读对照（不允许在右栏编辑后直接提交）
+        var dialog = new ConflictDiffWindow(git, _repositoryPath, entry.RelativePath, allowEdit: false) { Owner = this };
         dialog.ShowDialog();
     }
 }

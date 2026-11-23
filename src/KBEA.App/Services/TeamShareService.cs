@@ -77,6 +77,12 @@ public sealed class TeamShareService : IDisposable
 
     public List<PeerInfo> Peers => _discovery.SnapshotPeers();
 
+    /// <summary>局域网诊断快照（诊断面板）。</summary>
+    public DiscoveryService.LanDiagnostics GetLanDiagnostics() => _discovery.GetDiagnostics();
+
+    /// <summary>主动发一轮 mDNS 查询并等待应答落缓存（诊断面板「重新扫描」）。</summary>
+    public Task ScanLanAsync(int waitMs = 2500) => _discovery.QueryPeersAsync(waitMs);
+
     // ---------- 生命周期 ----------
 
     public void Start()
@@ -156,7 +162,13 @@ public sealed class TeamShareService : IDisposable
     public async Task<(bool Success, string Message)> JoinTeamAsync(string inviteCode)
     {
         var invite = await ResolveInvite(inviteCode.Trim()).ConfigureAwait(false);
-        if (invite is null) return (false, "邀请码无效或已过期（owner 不在线时短码无法换取，请稍后再试）");
+        if (invite is null)
+        {
+            var onlineCount = Peers.Count(p => p.Online);
+            return (false, onlineCount == 0
+                ? "局域网内未发现任何在线设备：请确认双方在同一网络、对方已启动 KBEA，且双方防火墙都已放行（mDNS 5353/UDP 与服务端口）"
+                : "邀请码无效或已过期（在线设备都无法换取该短码，可能是 owner 重新生成过邀请码）");
+        }
         if (invite.OwnerMachineCode == _identity.MachineCode) return (false, "不能加入自己的团队");
         var owner = GetPeer(invite.OwnerMachineCode);
         if (owner is not { Online: true }) return (false, $"团队 owner（{invite.OwnerNickname}）当前不在线，稍后再试");
@@ -186,10 +198,12 @@ public sealed class TeamShareService : IDisposable
         if (code.Length > 30)
             return _store.ParseInviteCode(code);
 
-        // 短码 → 先问本机（owner 自己重join或同机测试），再遍历在线 peer
+        // 短码 → 先问本机（owner 自己 rejoin 或同机测试），再主动发一轮 mDNS 查询刷新在线列表后遍历。
+        // 之前只遍历缓存 peer：加入方刚启动/缓存过期时列表为空 → 没尝试任何广播就报"过期"
         var local = _store.ResolveShortInvite(code);
         if (local is not null) return local;
 
+        await _discovery.QueryPeersAsync(2500).ConfigureAwait(false);
         foreach (var peer in Peers.Where(p => p.Online))
         {
             var payload = await _client.GetShortInviteAsync(peer, code).ConfigureAwait(false);

@@ -8,11 +8,11 @@ namespace KBEA.App.Views;
 
 public partial class GitRepositoryWindow : Window
 {
-    private readonly GitService _git;
+    private readonly IGitOperations _git;
     private bool _isRepository;
     private bool _editing;
 
-    public GitRepositoryWindow(GitService git, string currentPath)
+    public GitRepositoryWindow(IGitOperations git, string currentPath)
     {
         InitializeComponent();
         _git = git;

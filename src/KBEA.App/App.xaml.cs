@@ -3,7 +3,6 @@ using KBEA.App.Services;
 using KBEA.App.ViewModels;
 using KBEA.Core.Archive;
 using KBEA.Core.Files;
-using KBEA.Core.Git;
 using KBEA.Core.Plugins;
 using KBEA.Core.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,7 +38,7 @@ public partial class App : Application
         var configPath = configIndex >= 0 && configIndex + 1 < e.Args.Length ? e.Args[configIndex + 1] : null;
         services.AddSingleton(new WorkspaceStore(configPath));
         services.AddSingleton<FileBrowserService>();
-        services.AddSingleton<GitService>();
+        // GitService 已随 P2 迁入 kbea-plugin-git：宿主经 GitOperationsProvider.Instance 解析 IGitOperations
         services.AddSingleton<ArchiveService>();
         services.AddSingleton<PluginCatalog>();
         services.AddSingleton<WorkerClient>();

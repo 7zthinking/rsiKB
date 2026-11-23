@@ -6,6 +6,13 @@ using KBEA.Core.Knowledge;
 
 namespace KBEA.App.ViewModels;
 
+/// <summary>合并后的标签 chip：同类命名空间折叠为一个，Tooltip 展开全部值。</summary>
+public sealed class TagChipViewModel
+{
+    public string Display { get; init; } = string.Empty;
+    public string Tooltip { get; init; } = string.Empty;
+}
+
 /// <summary>检索命中项（UI 包装）：增加版本簇折叠状态、语义标签与显示文本。</summary>
 public sealed partial class SearchHitItem : ObservableObject
 {
@@ -48,18 +55,41 @@ public sealed partial class SearchHitItem : ObservableObject
     /// <summary>修改时间。</summary>
     public string DisplayTime => Hit.Mtime > DateTimeOffset.MinValue ? Hit.Mtime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : string.Empty;
 
-    /// <summary>语义标签（过滤内部命名空间与格式标签，保留对用户有意义的类型/主题/版本线索）。</summary>
-    public ObservableCollection<string> TagChips { get; } = [];
+    /// <summary>合并后的语义标签（同类命名空间折叠，鼠标悬浮显示全部值）。</summary>
+    public ObservableCollection<TagChipViewModel> TagChips { get; } = [];
+
+    /// <summary>文件名后是否有扩展名（无扩展名按目录处理，用于取 shell 图标）。</summary>
+    public bool IsDirectory => string.IsNullOrEmpty(Path.GetExtension(Hit.RelativePath));
+
+    /// <summary>取系统图标用的绝对路径；由 MainViewModel 注入解析结果（团队命中为空 → 通用图标）。</summary>
+    public string IconPath { get; private set; } = string.Empty;
+
+    /// <summary>注入图标路径解析（在填充结果后调用）。</summary>
+    public void ResolveIcon(string iconPath) => IconPath = iconPath;
 
     /// <summary>初始化标签展示（在填充结果后调用一次）。</summary>
     public void BuildTags()
     {
         TagChips.Clear();
+        var groups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var tag in Hit.Tags)
         {
-            if (tag.StartsWith("format/", StringComparison.Ordinal)) continue;
-            if (tag.StartsWith("size/", StringComparison.Ordinal)) continue;
-            TagChips.Add(tag);
+            var separator = tag.IndexOf('/');
+            if (separator <= 0) continue;
+            var ns = tag[..separator];
+            if (ns is "format" or "size" or "git") continue;
+            if (!groups.TryGetValue(ns, out var list)) groups[ns] = list = [];
+            list.Add(tag[(separator + 1)..]);
+        }
+        foreach (var (ns, values) in groups)
+        {
+            var distinct = values.Distinct().ToList();
+            var display = distinct.Count == 1 ? distinct[0] : $"{distinct[0]} 等 {distinct.Count} 项";
+            TagChips.Add(new TagChipViewModel
+            {
+                Display = display,
+                Tooltip = string.Join("  ", distinct.Select(v => $"{ns}/{v}"))
+            });
         }
     }
 

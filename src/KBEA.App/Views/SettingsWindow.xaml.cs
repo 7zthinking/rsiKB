@@ -10,6 +10,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using KBEA.Core.Models;
 using KBEA.Core.Services;
+using KBEA.App.Services;
 using Microsoft.Win32;
 
 namespace KBEA.App.Views;
@@ -23,6 +24,7 @@ public partial class SettingsWindow : Window
 
     private readonly AppConfiguration _configuration;
     private readonly Dictionary<string, FrameworkElement> _panels = new();
+    private readonly Action? _onPluginSave;
 
     // Browse 按钮需要直接访问的 TextBox 字段
     private TextBox _rsyncBox = null!;
@@ -32,11 +34,15 @@ public partial class SettingsWindow : Window
 
     private const string CurrentVersion = "v0.3.0";
 
-    public SettingsWindow(AppConfiguration configuration)
+    /// <param name="pluginPages">P4 插件设置页（经 PluginHostService 收集，UI 线程构建）。</param>
+    /// <param name="onPluginSave">宿主「保存设置」时回调插件保存（SettingsWindow 不感知具体插件）。</param>
+    public SettingsWindow(AppConfiguration configuration,
+        IReadOnlyList<KBEA.Core.Plugins.SettingsPageVm>? pluginPages = null, Action? onPluginSave = null)
     {
         InitializeComponent();
 
         _configuration = configuration;
+        _onPluginSave = onPluginSave;
 
         // 深拷贝，编辑不直接影响原配置
         var json = JsonSerializer.Serialize(configuration);
@@ -61,7 +67,22 @@ public partial class SettingsWindow : Window
         _panels["model"] = BuildModelPanel();
         _panels["organization"] = BuildOrganizationPanel();
         _panels["sharing"] = BuildSharingPanel();
+        _panels["plugins"] = BuildPluginsPanel();
         _panels["about"] = BuildAboutPanel();
+
+        // P4：插件设置页追加到左列表（「插件：<Title>」），内容由插件构建的元素承载
+        if (pluginPages is not null)
+        {
+            for (var i = 0; i < pluginPages.Count; i++)
+            {
+                var page = pluginPages[i];
+                var tag = $"plugin:{i}";
+                var panel = page.Content as FrameworkElement
+                    ?? new TextBlock { Text = page.Content?.ToString() ?? string.Empty, TextWrapping = TextWrapping.Wrap };
+                _panels[tag] = panel;
+                CategoryList.Items.Add(new ListBoxItem { Content = $"插件：{page.Title}", Tag = tag });
+            }
+        }
 
         // 默认选中第一个分类
         CategoryList.SelectedIndex = 0;
@@ -365,6 +386,98 @@ public partial class SettingsWindow : Window
         tip.Child = new TextBlock
         {
             Text = "提示：昵称在「团队管理」窗口修改；防火墙放行引导在「新建团队」时弹出，之后也可在团队管理里重试。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
+        };
+        panel.Children.Add(tip);
+
+        return panel;
+    }
+
+    /// <summary>
+    /// P5 插件管理页：列出已发现的插件（名称/版本/能力/加载状态）+ 启用开关。
+    /// 开关变更在「保存设置」时写回各自 plugin.json 的 enabled 字段；禁用/启用需重启后生效
+    /// （插件 ALC 不可热卸载，见 docs/plugin-architecture.md §6）。
+    /// </summary>
+    private FrameworkElement BuildPluginsPanel()
+    {
+        var panel = new StackPanel();
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = "插件管理",
+            FontSize = 18,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6)
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "在此启用或禁用随程序分发的插件。保存设置后写入各插件目录的 plugin.json，重启应用后生效。",
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 14)
+        });
+
+        var statuses = PluginBridge.GetPluginStatuses();
+        if (statuses.Count == 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "未发现插件。插件位于程序目录下的 plugins/ 子目录中。",
+                Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
+            });
+            return panel;
+        }
+
+        foreach (var status in statuses)
+        {
+            var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var info = new StackPanel();
+            info.Children.Add(new TextBlock
+            {
+                Text = $"{status.Name}  v{status.Version}",
+                FontWeight = FontWeights.SemiBold
+            });
+            info.Children.Add(new TextBlock
+            {
+                Text = $"{status.Id} · 能力：{status.Capabilities} · {status.Status}",
+                Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+            Grid.SetColumn(info, 0);
+
+            var toggle = new CheckBox
+            {
+                Content = "启用",
+                IsChecked = status.Enabled,
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = status
+            };
+            // 变更记录到 manifest（保存时统一写回 plugin.json）
+            toggle.Checked += (_, _) => { status.Manifest.Enabled = true; };
+            toggle.Unchecked += (_, _) => { status.Manifest.Enabled = false; };
+            Grid.SetColumn(toggle, 1);
+
+            row.Children.Add(info);
+            row.Children.Add(toggle);
+            panel.Children.Add(row);
+        }
+
+        var tip = new Border
+        {
+            Background = (System.Windows.Media.Brush)FindResource("AccentSoftBrush"),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        tip.Child = new TextBlock
+        {
+            Text = "提示：插件的启用状态保存在其 plugin.json 中。禁用后重启应用不再加载该插件（工具栏按钮、扩展点一并消失）。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
         };
@@ -832,7 +945,27 @@ public partial class SettingsWindow : Window
         _configuration.TeamCacheLimitGb = edited.TeamCacheLimitGb;
         _configuration.TeamSyncIntervalMinutes = edited.TeamSyncIntervalMinutes;
         _configuration.TeamServicePort = edited.TeamServicePort;
+        // P5：插件启用状态写回各自 plugin.json（失败只提示，不阻断其他设置保存）
+        var pluginErrors = SavePluginEnableStates();
+        // P4：先回调插件保存（插件自行持久化），再关闭窗口
+        _onPluginSave?.Invoke();
+        if (pluginErrors.Count > 0)
+            MessageBox.Show(this,
+                "以下插件的启用状态未能写入（文件可能只读或已损坏）：\n" + string.Join("\n", pluginErrors),
+                "插件管理", MessageBoxButton.OK, MessageBoxImage.Warning);
         DialogResult = true;
+    }
+
+    /// <summary>把插件启用开关写回各自 plugin.json；返回失败的插件说明。</summary>
+    private List<string> SavePluginEnableStates()
+    {
+        var errors = new List<string>();
+        foreach (var status in PluginBridge.GetPluginStatuses())
+        {
+            try { KBEA.Core.Plugins.PluginCatalog.SetEnabled(status.Manifest, status.Manifest.Enabled); }
+            catch (Exception ex) { errors.Add($"{status.Name}：{ex.Message}"); }
+        }
+        return errors;
     }
 
     private void BrowseRsync_Click(object sender, RoutedEventArgs e)

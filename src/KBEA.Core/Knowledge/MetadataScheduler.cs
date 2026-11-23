@@ -42,8 +42,18 @@ public sealed class MetadataScheduler
     {
         try
         {
-            var service = new KnowledgeIngestService();
-            var progress = new Progress<KnowledgeIngestService.LayerProgress>(p =>
+            // Ingest 引擎已随 P3 迁入 kbea-plugin-wiki：调度器经 WikiOperationsProvider 解析，
+            // 插件未加载时任务直接失败并给出可操作的提示
+            var service = WikiOperationsProvider.Instance;
+            if (service is null)
+            {
+                var message = "wiki 插件未加载，无法执行元数据整理。请检查 plugins/kbea-plugin-wiki 是否随宿主分发。";
+                _jobs.Complete(job.Id, MetadataJobState.Failed, message);
+                UpdatePlanState(job, message, false);
+                log?.Invoke($"任务失败：{message}");
+                return false;
+            }
+            var progress = new Progress<LayerProgress>(p =>
                 _jobs.UpdateProgress(job.Id, p.Stage, p.Processed, p.Total));
             var pluginProgress = new Progress<PluginProgress>(p =>
                 _jobs.UpdatePluginProgress(job.Id, p));

@@ -25,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MahApps.Metro.IconPacks.Lucide" Version="6.2.1" />
     <Resource Include="Assets\logo.png" />
     <None Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
@@ -34,9 +35,7 @@
   <!-- Optional single-assembly source run for devices with application-control
        policies that block newly built, unsigned dependency DLLs. -->
   <ItemGroup Condition="'$(SingleAssembly)' == 'true'">
-    <Compile Include="..\KBEA.Core\**\*.cs"
-             Exclude="..\KBEA.Core\obj\**\*;..\KBEA.Core\bin\**\*"
-             Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\KBEA.Core\**\*.cs" Exclude="..\KBEA.Core\obj\**\*;..\KBEA.Core\bin\**\*" Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
     <PackageReference Include="DiffPlex" Version="1.7.2" />
     <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
     <PackageReference Include="Makaretu.Dns.Multicast" Version="0.27.0" />

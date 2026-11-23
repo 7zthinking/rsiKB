@@ -84,10 +84,8 @@ public static class RuleTagger
         tags.AddRange(LocationTags(relativePath));
         tags.Add(gitTracked ? "git/tracked" : "git/untracked");
 
-        // 页数分面（facts 已知时才打），支撑"30页左右"的粗筛
-        var pagesBucket = PageBucket(size, format);
-        if (pagesBucket is not null) tags.Add($"pages/{pagesBucket}");
-
+        // 页数分面只在 facts 已知时由 PageBucketFromFacts 打（真实页数）；
+        // 此处不再用文件字节近似页数——曾导致同一文件同时带 huge/tiny 两个矛盾标签
         return tags.Distinct().ToArray();
     }
 

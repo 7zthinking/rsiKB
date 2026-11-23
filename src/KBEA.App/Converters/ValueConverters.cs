@@ -25,6 +25,7 @@ public sealed class FileIconConverter : IValueConverter
             FileEntry file => (file.FullPath, file.IsDirectory),
             LocalFolderViewModel folder => (folder.FullPath, true),
             FolderNodeViewModel folder => (folder.FullPath, true),
+            SearchHitItem hitItem => (hitItem.IconPath, hitItem.IsDirectory),
             string folderPath => (folderPath, true),
             _ => (string.Empty, false)
         };

@@ -27,6 +27,7 @@
                     <ListBoxItem Content="模型设置" Tag="model" />
                     <ListBoxItem Content="组织与共享" Tag="organization" />
                     <ListBoxItem Content="共享设置" Tag="sharing" />
+                    <ListBoxItem Content="插件管理" Tag="plugins" />
                     <ListBoxItem Content="关于我们" Tag="about" />
                 </ListBox>
             </Grid>

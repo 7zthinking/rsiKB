@@ -145,6 +145,8 @@
             <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="2,14,0,0">
                 <Button Content="防火墙检测" Style="{StaticResource ToolbarButton}" Command="{Binding FirewallCheckCommand}"
                         ToolTip="检查并放行团队共享所需的防火墙规则（mDNS 5353/UDP + 文件服务 TCP）" />
+                <Button Content="局域网诊断" Style="{StaticResource ToolbarButton}" Command="{Binding LanDiagnosticsCommand}"
+                        ToolTip="可视化查看 mDNS 发现链路：本机广播、应答统计、发现的设备与服务端口连通性" />
                 <Button Content="生成邀请码" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Command="{Binding GenerateInviteCommand}"
                         ToolTip="生成 7 天有效的团队邀请码并复制到剪贴板" />
                 <Button Content="{Binding SelectedTeam.LeaveText}" Style="{StaticResource ToolbarButton}" Margin="10,0,0,0" Command="{Binding LeaveTeamCommand}"

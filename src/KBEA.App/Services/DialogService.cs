@@ -8,7 +8,8 @@ namespace KBEA.App.Services;
 
 public sealed class DialogService : IDialogService
 {
-    private readonly GitService _git = new();
+    // GitService 已迁入 kbea-plugin-git（P2）：经 GitOperationsProvider 解析，插件未加载时相关对话框降级
+    private static IGitOperations? Git => GitOperationsProvider.Instance;
     private List<DirectoryDefinition> _directories = [];
 
     /// <summary>供空间对话框展示“归属目录”候选项，由 MainViewModel 在启动时提供。</summary>
@@ -32,19 +33,19 @@ public sealed class DialogService : IDialogService
 
     public bool ShowSettings(AppConfiguration configuration)
     {
-        var dialog = new SettingsWindow(configuration) { Owner = Application.Current.MainWindow };
+        var dialog = new SettingsWindow(configuration, PluginBridge.GetSettingsPages(), () => PluginBridge.Instance?.SavePluginSettings()) { Owner = Application.Current.MainWindow };
         return dialog.ShowDialog() == true;
     }
 
     public SpaceDialogResult? ShowNewSpace(Guid? preselectDirectoryId = null)
     {
-        var dialog = new SpaceWindow(git: _git, directories: _directories, preselectDirectoryId: preselectDirectoryId) { Owner = Application.Current.MainWindow };
+        var dialog = new SpaceWindow(git: Git, directories: _directories, preselectDirectoryId: preselectDirectoryId) { Owner = Application.Current.MainWindow };
         return dialog.ShowDialog() == true ? dialog.Value : null;
     }
 
     public SpaceDialogResult? ShowEditSpace(string name, string? currentPath = null, Guid? preselectDirectoryId = null)
     {
-        var dialog = new SpaceWindow(name, _git, _directories, preselectDirectoryId, currentPath) { Owner = Application.Current.MainWindow };
+        var dialog = new SpaceWindow(name, Git, _directories, preselectDirectoryId, currentPath) { Owner = Application.Current.MainWindow };
         return dialog.ShowDialog() == true ? dialog.Value : null;
     }
 
@@ -56,15 +57,22 @@ public sealed class DialogService : IDialogService
 
     public GitDialogResult? ShowGitRepository(string currentPath)
     {
-        var dialog = new GitRepositoryWindow(_git, currentPath) { Owner = Application.Current.MainWindow };
+        var git = Git;
+        if (git is null)
+        {
+            Info("Git 插件未加载，无法配置 Git 仓库。");
+            return null;
+        }
+        var dialog = new GitRepositoryWindow(git, currentPath) { Owner = Application.Current.MainWindow };
         return dialog.ShowDialog() == true ? dialog.Value : null;
     }
 
     public void ShowHistory(string title, string repositoryPath)
     {
-        var status = _git.GetStatus(repositoryPath);
-        var entries = status.IsRepository ? _git.GetDetailedStatus(repositoryPath) : Array.Empty<KBEA.Core.Models.GitStatusEntry>();
-        var commits = status.IsRepository ? _git.GetHistory(repositoryPath) : Array.Empty<KBEA.Core.Models.GitCommitInfo>();
+        var git = Git;
+        var status = git?.GetStatus(repositoryPath) ?? new GitStatusInfo(false, 0, string.Empty, string.Empty, 0);
+        var entries = status.IsRepository && git is not null ? git.GetDetailedStatus(repositoryPath) : Array.Empty<KBEA.Core.Models.GitStatusEntry>();
+        var commits = status.IsRepository && git is not null ? git.GetHistory(repositoryPath) : Array.Empty<KBEA.Core.Models.GitCommitInfo>();
         var dialog = new GitHistoryWindow(title, repositoryPath, status, entries, commits) { Owner = Application.Current.MainWindow };
         dialog.ShowDialog();
     }
@@ -100,6 +108,7 @@ public sealed class DialogService : IDialogService
         public void Done(bool succeeded, string finalMessage)
         {
             if (_disposed) return;
+            _disposed = true; // 关键：Done 后 Dispose 不能再用"操作被中止"覆盖结果（曾致所有 git 操作显示失败）
             window.SetResult(succeeded, finalMessage);
         }
         public void Dispose()

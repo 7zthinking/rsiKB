@@ -23,7 +23,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 {
     private readonly WorkspaceStore _store;
     private readonly FileBrowserService _files;
-    private readonly GitService _git;
+    // GitService 已迁入 kbea-plugin-git（P2）：实现经 GitOperationsProvider 解析，插件未加载时为 null → Git 功能优雅降级
+    private static IGitOperations? Git => GitOperationsProvider.Instance;
     private readonly ArchiveService _archive;
     private readonly PluginCatalog _plugins;
     private readonly IDialogService _dialogs;
@@ -42,12 +43,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _isAssistantOpen;
     private bool _disposed;
     private readonly TeamShareService _team;
+    private PluginHostService? _pluginHost;
 
-    public MainViewModel(WorkspaceStore store, FileBrowserService files, GitService git, ArchiveService archive, PluginCatalog plugins, IDialogService dialogs, WorkerClient worker)
+    public MainViewModel(WorkspaceStore store, FileBrowserService files, ArchiveService archive, PluginCatalog plugins, IDialogService dialogs, WorkerClient worker)
     {
         _store = store;
         _files = files;
-        _git = git;
         _archive = archive;
         _plugins = plugins;
         _dialogs = dialogs;
@@ -105,6 +106,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OpenSharedItemCommand = new RelayCommand<SharedSpaceItem>(OpenSharedItem, item => item is not null);
         OpenTeamShareNodeCommand = new RelayCommand<SharedSpaceItem>(OpenTeamShareNode, item => item is not null);
         KnowledgeSearch.OpenRequested = OpenSearchHit;
+        KnowledgeSearch.OpenFolderRequested = OpenSearchHitFolder;
+        KnowledgeSearch.IconResolver = ResolveHitIcon;
         KnowledgeSearch.PreviewLoader = path => LoadPreviewFor(path);
         // IsSearchView/IsBrowserView 依赖 KnowledgeSearch.IsSearching（跨 ViewModel 计算属性），
         // 必须转发通知，否则 Reset() 退出检索视图时 UI 不会切换
@@ -115,6 +118,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(IsSearchView));
                 OnPropertyChanged(nameof(IsBrowserView));
                 OnPropertyChanged(nameof(IsEmptyView));
+                OnPropertyChanged(nameof(IsBrowserChromeVisible));
             }
         };
         _monitor.Changed += MonitorChanged;
@@ -138,6 +142,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<MountTabViewModel> TabItems { get; } = [];
     public ObservableCollection<CatalogResult> CatalogResults { get; } = [];
     public ObservableCollection<PluginManifest> Plugins { get; } = [];
+    /// <summary>插件注册的工具栏分组（由 PluginHostService 灌入，经 IUiSurface 切回 UI 线程）。
+    /// 组内按钮只含图标/提示/命令，排布与收起由宿主框架负责。</summary>
+    public ObservableCollection<ToolbarGroupVm> PluginToolbarGroups { get; } = [];
 
     /// <summary>语义检索视图状态。</summary>
     public KnowledgeSearchViewModel KnowledgeSearch { get; } = new();
@@ -148,8 +155,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         && !SelectedTab.IsComputer
         && _configuration.FavoriteFolders.Contains(SelectedTab.CurrentPath);
 
-    /// <summary>工具栏收藏按钮的动态文案：☆ 收藏文件夹 / ★ 取消收藏。</summary>
-    public string FavoriteButtonText => IsCurrentPathFavorited ? "★ 取消收藏" : "☆ 收藏文件夹";
+    /// <summary>工具栏收藏按钮的动态文案：☆ 收藏 / ★ 取消收藏。</summary>
+    public string FavoriteButtonText => IsCurrentPathFavorited ? "★ 取消收藏" : "☆ 收藏";
     public AsyncRelayCommand NewSpaceCommand { get; }
     public AsyncRelayCommand NewDirectoryCommand { get; }
     public RelayCommand<WorkspaceNodeViewModel> EditSpaceCommand { get; }
@@ -230,6 +237,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (value is not null) IsCatalogView = false;
             OnPropertyChanged(nameof(IsBrowserView));
             OnPropertyChanged(nameof(IsEmptyView));
+            OnPropertyChanged(nameof(IsBrowserChromeVisible));
+            OnPropertyChanged(nameof(SearchAddressText));
             OnPropertyChanged(nameof(SelectedTabItem));
             OnPropertyChanged(nameof(IsCurrentPathFavorited));
             OnPropertyChanged(nameof(FavoriteButtonText));
@@ -237,6 +246,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             UpdateFavorites();
             // 标签切换 → 左侧栏自动跳到对应类别并选中项
             SyncSidebarToTab();
+            // 快照事件：插件据此感知宿主状态变化
+            _pluginHost?.Refresh();
         }
     }
 
@@ -258,7 +269,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         set { if (SetProperty(ref _selectedCatalogResult, value)) OpenCatalogResultCommand.NotifyCanExecuteChanged(); }
     }
 
-    public string GlobalStatus { get => _globalStatus; set => SetProperty(ref _globalStatus, value); }
+    public string GlobalStatus
+    {
+        get => _globalStatus;
+        set { if (SetProperty(ref _globalStatus, value)) _pluginHost?.Refresh(); }
+    }
     public string CatalogTitle { get => _catalogTitle; set => SetProperty(ref _catalogTitle, value); }
     public bool IsCatalogView
     {
@@ -268,11 +283,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (!SetProperty(ref _isCatalogView, value)) return;
             OnPropertyChanged(nameof(IsBrowserView));
             OnPropertyChanged(nameof(IsEmptyView));
+            OnPropertyChanged(nameof(IsBrowserChromeVisible));
         }
     }
     public bool IsBrowserView => !IsCatalogView && !IsSearchView && SelectedTab is not null;
     public bool IsEmptyView => !IsCatalogView && !IsSearchView && SelectedTab is null;
     public bool IsSearchView => KnowledgeSearch.IsSearching;
+    // 编目视图（选目录节点）独占整个内容区，此时隐藏浏览器 chrome（地址栏/工具栏），避免与编目列表叠加
+    public bool IsBrowserChromeVisible => !IsCatalogView && (SelectedTab is not null || IsSearchView);
+    /// <summary>检索结果态的地址栏文案：显示结果归属的位置。</summary>
+    public string SearchAddressText => $"搜索结果：位置“{SelectedTab?.WorkspaceSpace?.Name ?? SelectedTab?.CurrentPath ?? string.Empty}”";
     public bool IsSidebarVisible { get => _isSidebarVisible; set => SetProperty(ref _isSidebarVisible, value); }
 
     /// <summary>
@@ -300,6 +320,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 SelectedRemoteLocation = null;
             }
             RefreshCommands();
+            _pluginHost?.Refresh();
         }
     }
     public bool IsWorkspaceSidebar => SidebarSection == SidebarSection.Workspace;
@@ -414,7 +435,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshLocalFolders();
         RebuildTree();
         foreach (var plugin in _plugins.Discover()) Plugins.Add(plugin);
+        // P1 插件宿主：发现 → ALC 加载 → 工具栏按钮灌入 PluginToolbarButtons
+        _pluginHost = new PluginHostService(this);
+        _pluginHost.Load();
+        Services.PluginBridge.Instance = _pluginHost;
         OnPropertyChanged(nameof(PluginSummary));
+        // git 插件可能在标签初始化之后才注册完成 → 补一次 Git 状态刷新（避免首启标签漏掉 Git 标记）
+        _ = SelectedTab?.RefreshGitStatusAsync();
         foreach (var space in _configuration.Spaces.Where(x => Directory.Exists(x.Path)))
         {
             try { new MetadataStore(space.Path).Initialize(); }
@@ -572,6 +599,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (item is null) return;
         SetShareSelection(item);
+        ExitSearchIfActive(); // 点左边栏其他位置 → 自动取消检索结果
         _suppressSidebarSync = true;
         try
         {
@@ -634,10 +662,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private (System.Windows.Media.Imaging.BitmapImage? Image, string Text) LoadPreviewFor(string path)
     {
         var teamRef = TeamHitRef.Decode(path);
-        if (teamRef is null) return PreviewHelper.Load(path, _files);
+        if (teamRef is null) return PreviewHelper.Load(path, _files, Services.PluginBridge.TryPluginPreview);
         var cached = ResolveTeamHitFile(teamRef, maximumBytes: 8 * 1024 * 1024);
         if (cached is null) return (null, "来源当前离线，无法预览。等 owner 上线后重试。");
-        return PreviewHelper.Load(cached, _files);
+        return PreviewHelper.Load(cached, _files, Services.PluginBridge.TryPluginPreview);
     }
 
     /// <summary>把团队命中文件取回内容缓存（LRU），返回本地缓存路径。</summary>
@@ -704,6 +732,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (location is null || SelectedTab is null || IsBusy) return;
         IsBusy = true;
+        ExitSearchIfActive(); // 点左边栏其他位置 → 自动取消检索结果
         GlobalStatus = $"正在准备远程位置 {location.Name}…";
         try
         {
@@ -803,17 +832,35 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 return;
             }
             if (result.DirectoryId is { } directoryId && _configuration.Directories.Any(x => x.Id == directoryId)) space.DirectoryId = directoryId;
-            IsBusy = true;
-            GlobalStatus = $"正在建立空间“{space.Name}”…";
-            try
+            // 元数据初始化/索引全部后台执行：大目录不再卡 UI（UI 立即建空间并打开），失败自动重试 3 次
+            _ = Task.Run(async () =>
             {
-                await Task.Run(() => { var metadata = new MetadataStore(space.Path); metadata.Initialize(); metadata.IndexFiles(); });
-                // 元数据生成交给后台 Worker，前台只投递任务
-                _worker.EnqueueJob(space.Path, space.Name, MetadataJobKind.Basic, "space-created");
-                _worker.EnqueueJob(space.Path, space.Name, MetadataJobKind.Type, "space-created");
-            }
-            catch (Exception ex) { _dialogs.Info($"空间初始化失败：{ex.Message}"); GlobalStatus = "空间初始化失败"; IsBusy = false; return; }
-            IsBusy = false;
+                for (var attempt = 1; attempt <= 3; attempt++)
+                {
+                    try
+                    {
+                        var metadata = new MetadataStore(space.Path);
+                        metadata.Initialize();
+                        metadata.IndexFiles();
+                        _worker.EnqueueJob(space.Path, space.Name, MetadataJobKind.Basic, "space-created");
+                        _worker.EnqueueJob(space.Path, space.Name, MetadataJobKind.Type, "space-created");
+                        Application.Current?.Dispatcher.BeginInvoke(() =>
+                            GlobalStatus = $"空间“{space.Name}”元数据已就绪。");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (attempt == 3)
+                        {
+                            Application.Current?.Dispatcher.BeginInvoke(() =>
+                                GlobalStatus = $"空间“{space.Name}”元数据初始化失败：{ex.Message}（可在知识WIKI面板手动重跑）");
+                            return;
+                        }
+                        await Task.Delay(TimeSpan.FromSeconds(30));
+                    }
+                }
+            });
+            GlobalStatus = $"已创建空间“{space.Name}”，元数据正在后台生成…";
         }
         _configuration.Spaces.Add(space);
         SaveConfiguration();
@@ -954,13 +1001,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void ShowCatalog(DirectoryDefinition directory)
     {
         CatalogResults.Clear();
+        ExitSearchIfActive(); // 点左边栏其他位置 → 自动取消检索结果
         foreach (var space in _configuration.Spaces.Where(x => x.DirectoryId == directory.Id && Directory.Exists(x.Path)))
         {
             try
             {
                 var metadata = new MetadataStore(space.Path);
-                foreach (var link in metadata.GetLinks(space.Id, directory.Id))
-                    CatalogResults.Add(new CatalogResult(space.Id, space.Name, space.Path, link.RelativePath, Path.Combine(space.Path, link.RelativePath), link.FileHash));
+                // 列出该空间已索引的全部文件资料（file_index 有真实数据；catalog_links 从未写入，
+                // 且其中的 DirectoryId 是编目时的归属目录，与选中节点无关）
+                foreach (var file in metadata.GetAllFiles())
+                    CatalogResults.Add(new CatalogResult(space.Id, space.Name, space.Path, file.RelativePath, file.FullPath, file.DisplaySize, file.LastWriteTime.ToString("yyyy-MM-dd HH:mm")));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { GlobalStatus = $"读取编目失败：{ex.Message}"; }
             // SQLite 层的失败（库损坏、被占用、.7z 不可写）同样不能冒泡杀进程
@@ -1053,14 +1103,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var file = tab?.SelectedFile;
         if (tab is null || file is null || file.IsDirectory) return;
         var root = string.IsNullOrWhiteSpace(tab.GitRepositoryRoot)
-            ? _git.DiscoverRepositoryRoot(tab.CurrentPath)
+            ? Git?.DiscoverRepositoryRoot(tab.CurrentPath)
             : tab.GitRepositoryRoot;
         if (string.IsNullOrWhiteSpace(root))
         {
             _dialogs.Info("当前目录不在 Git 仓库中。");
             return;
         }
-        var window = new Views.ConflictDiffWindow(_git, root, file.RelativePath)
+        var git = Git;
+        if (git is null)
+        {
+            _dialogs.Info("Git 插件未加载，无法进行版本比对。");
+            return;
+        }
+        var window = new Views.ConflictDiffWindow(git, root, file.RelativePath)
         {
             Owner = Application.Current.MainWindow
         };
@@ -1105,6 +1161,41 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         GlobalStatus = $"已为“{space.Name}”投递元数据任务，后台处理中。";
     }
 
+    /// <summary>用户跳转到其他位置（侧栏/空间/本地/远程）时自动取消检索结果，回到文件夹浏览。</summary>
+    private void ExitSearchIfActive()
+    {
+        if (!KnowledgeSearch.IsSearching) return;
+        KnowledgeSearch.Reset(); // IsSearching 变更会经构造器转发器刷新视图属性
+    }
+
+    /// <summary>检索命中 → 图标绝对路径（空间根 + 相对路径；团队命中给空走通用图标）。</summary>
+    private (string Path, bool IsDirectory) ResolveHitIcon(KnowledgeSearchService.SearchHit hit)
+    {
+        if (TeamHitRef.Decode(hit.FullPath) is not null) return (string.Empty, false);
+        var space = SelectedTab?.WorkspaceSpace;
+        if (space is null || string.IsNullOrWhiteSpace(space.Path)) return (string.Empty, false);
+        return (Path.Combine(space.Path, hit.RelativePath), string.IsNullOrEmpty(Path.GetExtension(hit.RelativePath)));
+    }
+
+    /// <summary>打开检索命中文件的所在文件夹：新标签定位到目标目录（团队共享命中不支持）。</summary>
+    private void OpenSearchHitFolder(KnowledgeSearchService.SearchHit hit)
+    {
+        if (TeamHitRef.Decode(hit.FullPath) is not null)
+        {
+            GlobalStatus = "团队共享文件暂不支持定位所在文件夹。";
+            return;
+        }
+        var space = SelectedTab?.WorkspaceSpace;
+        if (space is null) return;
+        var fullPath = Path.Combine(space.Path, hit.RelativePath);
+        var target = File.Exists(fullPath) ? Path.GetDirectoryName(fullPath) : space.Path;
+        if (string.IsNullOrEmpty(target) || !Directory.Exists(target)) return;
+        OpenSpace(space, forceNew: true);
+        SelectedTab?.SelectCatalogFile(Directory.Exists(fullPath) ? fullPath : Path.Combine(target, Path.GetFileName(fullPath)));
+        ExitSearchIfActive();
+        GlobalStatus = $"已定位到 {target}";
+    }
+
     /// <summary>打开检索命中的文件。</summary>
     private void OpenSearchHit(KnowledgeSearchService.SearchHit hit)
     {
@@ -1139,6 +1230,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (!Directory.Exists(space.Path)) { _dialogs.Info("该位置当前离线。重新连接磁盘或网络后即可使用。"); return; }
         IsCatalogView = false;
+        ExitSearchIfActive(); // 点左边栏其他位置 → 自动取消检索结果
         // 不清除 SelectedNode，保持树节点选中态
 
         // 标签为主：优先复用当前标签（让它切换空间），只有 forceNew 或没有标签时才新建
@@ -1152,7 +1244,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var tab = Tabs.FirstOrDefault(x => x.WorkspaceSpace?.Id == space.Id);
         if (tab is null)
         {
-            tab = new MountTabViewModel(space, _files, _git);
+            tab = new MountTabViewModel(space, _files);
             AttachTab(tab);
             AddTab(tab);
         }
@@ -1204,11 +1296,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         MountTabViewModel tab;
         if (first is not null)
         {
-            tab = new MountTabViewModel(first, _files, _git);
+            tab = new MountTabViewModel(first, _files);
         }
         else
         {
-            tab = new MountTabViewModel(_files, _git);
+            tab = new MountTabViewModel(_files);
         }
         AttachTab(tab);
         AddTab(tab);
@@ -1226,6 +1318,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (!Directory.Exists(path)) return;
         IsCatalogView = false; // 切回浏览视图
+        ExitSearchIfActive(); // 点左边栏其他位置 → 自动取消检索结果
 
         // 标签为主：优先复用当前标签（让它切换本地路径），只有 forceNew 或没有标签时才新建
         if (!forceNew && SelectedTab is not null)
@@ -1238,7 +1331,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var tab = Tabs.FirstOrDefault(x => x.IsLocal && path.StartsWith(x.RootPath, StringComparison.OrdinalIgnoreCase));
         if (tab is null)
         {
-            tab = new MountTabViewModel(path, _files, _git);
+            tab = new MountTabViewModel(path, _files);
             AttachTab(tab);
             AddTab(tab);
         }
@@ -1360,7 +1453,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         if (Directory.Exists(location.LocalPath) && Directory.EnumerateFileSystemEntries(location.LocalPath).Any())
             return location.LocalPath;
-        return _git.CloneRepository(location.Address, location.LocalPath);
+        return GitOperationsProvider.Instance?.CloneRepository(location.Address, location.LocalPath)
+            ?? throw new InvalidOperationException("Git 插件未加载，无法克隆远程仓库。");
     }
 
     private async Task MountRemoteAsync()
@@ -1405,12 +1499,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task BindGitAsync()
     {
+        var git = Git;
+        if (git is null)
+        {
+            _dialogs.Info("Git 插件未加载，无法关联 Git 仓库。");
+            return;
+        }
         if (SelectedTab is not { } tab) return;
         var result = _dialogs.ShowGitRepository(tab.CurrentPath);
         if (result is null) return;
         var repositoryPath = result.RepositoryPath;
         var remote = result.RemoteUrl.Trim();
-        await RunOperationAsync(tab, "Git 仓库关联", repositoryPath, progress => _git.BindRepository(repositoryPath, remote, progress).Display, "初始化本地仓库并关联远程 origin");
+        await RunOperationAsync(tab, "Git 仓库关联", repositoryPath, progress => git.BindRepository(repositoryPath, remote, progress).Display, "初始化本地仓库并关联远程 origin");
         // 只在标签绑定的是工作空间时写回配置（本地标签的 Space 是临时对象）
         if (tab.WorkspaceSpace is { } bound) bound.RemoteUrl = remote;
         if (!string.IsNullOrWhiteSpace(remote))
@@ -1432,16 +1532,28 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private Task PullAsync()
     {
+        var git = Git;
+        if (git is null)
+        {
+            _dialogs.Info("Git 插件未加载，无法拉取更新。");
+            return Task.CompletedTask;
+        }
         if (SelectedTab is not { } tab || string.IsNullOrEmpty(tab.GitRepositoryRoot)) return Task.CompletedTask;
-        return RunOperationAsync(tab, "拉取更新", tab.GitRepositoryRoot, progress => _git.Pull(tab.GitRepositoryRoot, _configuration.AuthorName, _configuration.AuthorEmail, progress), "从远程仓库拉取最新版本");
+        return RunOperationAsync(tab, "拉取更新", tab.GitRepositoryRoot, progress => git.Pull(tab.GitRepositoryRoot, _configuration.AuthorName, _configuration.AuthorEmail, progress), "从远程仓库拉取最新版本");
     }
 
     private async Task SavePushAsync()
     {
+        var git = Git;
+        if (git is null)
+        {
+            _dialogs.Info("Git 插件未加载，无法保存并上传。");
+            return;
+        }
         if (SelectedTab is not { } tab || string.IsNullOrEmpty(tab.GitRepositoryRoot)) return;
         var message = _dialogs.Prompt("保存并上传", "提交说明", $"更新资料 {DateTime.Now:MM-dd HH:mm}");
         if (message is null) return;
-        await RunOperationAsync(tab, "保存并上传", tab.GitRepositoryRoot, progress => _git.SaveAndPush(tab.GitRepositoryRoot, message, _configuration.AuthorName, _configuration.AuthorEmail, progress), "提交本地变更并上传到远程仓库");
+        await RunOperationAsync(tab, "保存并上传", tab.GitRepositoryRoot, progress => git.SaveAndPush(tab.GitRepositoryRoot, message, _configuration.AuthorName, _configuration.AuthorEmail, progress), "提交本地变更并上传到远程仓库");
     }
 
     private async Task RunOperationAsync(MountTabViewModel tab, string operation, string repoRoot, Func<IProgress<string>, string> action, string subtitle)
@@ -1643,11 +1755,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _pluginHost?.Dispose();
+        Services.PluginBridge.Instance = null;
         _monitor.Dispose();
         _team.Dispose();
         // 关闭所有标签：停止它们回填后台扫描结果
         foreach (var tab in Tabs) tab.Dispose();
     }
+
+    /// <summary>插件清单增减后刷新状态栏摘要（PluginHostService 调用）。</summary>
+    internal void NotifyPluginSummaryChanged() => OnPropertyChanged(nameof(PluginSummary));
 
     /// <summary>拖拽脱离空间：把 Directory 从当前父节点移除，放到 Workspaces 根层级。</summary>
     public void DetachWorkspaceNode(WorkspaceNodeViewModel node)
@@ -1721,13 +1838,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         else
         {
-            // 跨父节点移动
+            // 跨父节点移动：列表位置 + 挂载 ID 同步更新，否则 RebuildTree 后节点会弹回原父
             sourceList.RemoveAt(sourceIndex);
             targetList.Insert(insertIndex, source);
-            if (source.Directory is { } movedDir && target.Directory is { } targetDir)
-                movedDir.ParentId = targetDir.Id;
-            else if (source.Directory is { } movedDir2 && target.IsDirectory && target.Directory is null)
-                movedDir2.ParentId = null; // 跨到顶级 Directory（在 Workspaces 根的 target）
+
+            // 新父 = target 所在列表的容器节点；target 在根级（Workspaces）时为 null → 提升到根
+            var newParent = FindParentNode(Workspaces, target);
+
+            if (source.Directory is { } movedDir)
+                movedDir.ParentId = newParent?.Directory?.Id; // 挂到目标目录下；根级则清空 → 顶级节点
+            else if (source.Space is { } movedSpace)
+                movedSpace.DirectoryId = newParent?.Directory?.Id; // Space 同理：挂目录或独立到根
         }
 
         SaveConfiguration();

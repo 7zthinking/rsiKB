@@ -5,6 +5,9 @@ namespace KBEA.App.Services;
 
 public static class ThemeService
 {
+    /// <summary>主题切换后触发（图标等在加载时固化颜色的元素据此刷新）。</summary>
+    public static event Action? ThemeChanged;
+
     public static void Apply(string theme)
     {
         var dark = theme.Equals("Dark", StringComparison.OrdinalIgnoreCase);
@@ -22,6 +25,7 @@ public static class ThemeService
         Set("HoverBrush", dark ? "#FF2B3542" : "#FFE2E9F2");
         Set("SuccessBrush", dark ? "#FF57C98B" : "#FF14804A");
         Set("WarningBrush", dark ? "#FFFFC766" : "#FFB54708");
+        ThemeChanged?.Invoke();
     }
 
     private static void Set(string key, string color) => Application.Current.Resources[key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));

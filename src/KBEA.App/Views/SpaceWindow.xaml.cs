@@ -11,12 +11,12 @@ namespace KBEA.App.Views;
 public partial class SpaceWindow : Window
 {
     private readonly string _originalName;
-    private readonly GitService? _git;
+    private readonly IGitOperations? _git;
     private readonly List<DirectoryDefinition> _directories;
     private readonly Guid? _preselectDirectoryId;
     private bool _gitAutoFilled; // 标记远程地址是否由 Git 自动填入（自动填入时锁死）
 
-    public SpaceWindow(string? existingName = null, GitService? git = null, List<DirectoryDefinition>? directories = null, Guid? preselectDirectoryId = null, string? existingPath = null)
+    public SpaceWindow(string? existingName = null, IGitOperations? git = null, List<DirectoryDefinition>? directories = null, Guid? preselectDirectoryId = null, string? existingPath = null)
     {
         InitializeComponent();
         _originalName = existingName ?? string.Empty;

@@ -9,7 +9,7 @@ $PortDir = Join-Path $Root "artifacts/KBEA-Portable"
 $LightDir = Join-Path $Root "artifacts/KBEA-Light"
 
 # ---- Portable: 单文件 self-contained（给最终用户）----
-Write-Host "`n[1/3] Publishing Portable (single-file self-contained)..." -ForegroundColor Cyan
+Write-Host "`n[1/5] Publishing Portable (single-file self-contained)..." -ForegroundColor Cyan
 & $Dotnet publish $Proj `
     --configuration Release --runtime win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
@@ -23,7 +23,7 @@ Copy-Item (Join-Path $Root "packaging/Portable-Readme.txt") (Join-Path $PortDir 
 Write-Host "  => $PortDir/KBEA.exe" -ForegroundColor Green
 
 # ---- Light: 多文件 self-contained（方便逐个签名 + 开发调试）----
-Write-Host "`n[2/3] Publishing Light (multi-file self-contained)..." -ForegroundColor Cyan
+Write-Host "`n[2/5] Publishing Light (multi-file self-contained)..." -ForegroundColor Cyan
 & $Dotnet publish $Proj `
     --configuration Release --runtime win-x64 --self-contained true `
     -p:PublishSingleFile=false `
@@ -32,7 +32,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "  => $LightDir ($((Get-ChildItem $LightDir -Recurse -File).Count) files)" -ForegroundColor Green
 
 # ---- Worker: 后台元数据服务（独立进程，单文件 self-contained）----
-Write-Host "`n[3/3] Publishing Worker (single-file self-contained)..." -ForegroundColor Cyan
+Write-Host "`n[3/5] Publishing Worker (single-file self-contained)..." -ForegroundColor Cyan
 & $Dotnet publish $WorkerProj `
     --configuration Release --runtime win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
@@ -47,6 +47,56 @@ Write-Host "  => $PortDir/KBEA.Worker.exe" -ForegroundColor Green
     -p:DebugType=None -p:DebugSymbols=false --output $LightDir
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "  => $LightDir/KBEA.Worker.exe" -ForegroundColor Green
+
+# ---- Git plugin: P2 Git 插件拷到两个 artifacts 的 plugins/kbea-plugin-git ----
+# 宿主契约（KBEA.Core.dll）不能拷（与发布脚本顶部 Sample 插件同一原则）；
+# 但 LibGit2Sharp 托管 + git2 本机库是插件私有依赖，必须随插件目录分发。
+Write-Host "`n[5/5] Copying git plugin..." -ForegroundColor Cyan
+& $Dotnet build (Join-Path $Root "src/KBEA.Plugin.Git/KBEA.Plugin.Git.csproj") --configuration Release
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$GitOut = Join-Path $Root "src/KBEA.Plugin.Git/bin/Release/net8.0"
+foreach ($Dir in @($PortDir, $LightDir)) {
+    $PluginDir = Join-Path $Dir "plugins/kbea-plugin-git"
+    New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
+    Copy-Item (Join-Path $GitOut "plugin.json") $PluginDir -Force
+    Copy-Item (Join-Path $GitOut "KBEA.Plugin.Git.dll") $PluginDir -Force
+    Copy-Item (Join-Path $GitOut "LibGit2Sharp.dll") $PluginDir -Force
+    # Native libs: keep runtimes/win-x64/native (LibGit2Sharp resolver path) + flat copy as fallback
+    $NativeDir = Join-Path $PluginDir "runtimes/win-x64/native"
+    New-Item -ItemType Directory -Force -Path $NativeDir | Out-Null
+    Copy-Item (Join-Path $GitOut "runtimes/win-x64/native/*.dll") $NativeDir -Force
+    Copy-Item (Join-Path $GitOut "runtimes/win-x64/native/*.dll") $PluginDir -Force
+}
+Write-Host "  => plugins/kbea-plugin-git" -ForegroundColor Green
+
+# ---- Wiki plugin: P3 知识 WIKI 插件拷到两个 artifacts 的 plugins/kbea-plugin-wiki ----
+# 插件只带自己的 plugin.json + 入口 DLL（无第三方依赖）：宿主契约（KBEA.Core）由宿主进程提供，不能拷。
+Write-Host "`n[6/6] Copying wiki plugin..." -ForegroundColor Cyan
+& $Dotnet build (Join-Path $Root "src/KBEA.Plugin.Wiki/KBEA.Plugin.Wiki.csproj") --configuration Release
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$WikiOut = Join-Path $Root "src/KBEA.Plugin.Wiki/bin/Release/net8.0"
+foreach ($Dir in @($PortDir, $LightDir)) {
+    $PluginDir = Join-Path $Dir "plugins/kbea-plugin-wiki"
+    New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
+    Copy-Item (Join-Path $WikiOut "plugin.json") $PluginDir -Force
+    Copy-Item (Join-Path $WikiOut "KBEA.Plugin.Wiki.dll") $PluginDir -Force
+}
+Write-Host "  => plugins/kbea-plugin-wiki" -ForegroundColor Green
+
+# ---- Sample plugin: 打样插件（P1 验收用）拷到两个 artifacts 的 plugins/kbea-plugin-sample ----
+# 插件只带自己的 plugin.json + 入口 DLL：宿主契约（KBEA.Core）由宿主进程提供，
+# 不能拷插件目录里的 KBEA.Core.dll 副本，否则 ALC 内会加载出第二份类型导致转换失败。
+Write-Host "`n[4/5] Copying sample plugin..." -ForegroundColor Cyan
+& $Dotnet build (Join-Path $Root "src/KBEA.Plugin.Sample/KBEA.Plugin.Sample.csproj") --configuration Release
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$SampleOut = Join-Path $Root "src/KBEA.Plugin.Sample/bin/Release/net8.0"
+foreach ($Dir in @($PortDir, $LightDir)) {
+    $PluginDir = Join-Path $Dir "plugins/kbea-plugin-sample"
+    New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
+    Copy-Item (Join-Path $SampleOut "plugin.json") $PluginDir -Force
+    Copy-Item (Join-Path $SampleOut "KBEA.Plugin.Sample.dll") $PluginDir -Force
+}
+Write-Host "  => plugins/kbea-plugin-sample" -ForegroundColor Green
 
 # ---- 清理旧的 framework-dependent 遗留 ----
 Write-Host "`nDone." -ForegroundColor Cyan

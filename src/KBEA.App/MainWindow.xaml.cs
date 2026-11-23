@@ -7,9 +7,11 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using KBEA.App.Controls;
 using KBEA.App.Services;
 using KBEA.App.ViewModels;
 using KBEA.Core.Models;
+using KBEA.Core.Plugins;
 
 namespace KBEA.App;
 
@@ -37,6 +39,16 @@ public partial class MainWindow : Window
         ViewModel.Tabs.CollectionChanged += (_, _) => UpdateTabWidths();
         Loaded += (_, _) => UpdateTabWidths();
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+        // 主题切换 → 图标颜色在构建时固化，统一重建（chrome 图标 + 工具栏组）
+        Services.ThemeService.ThemeChanged += RefreshToolbarIcons;
+        // 工具栏组：内置组（收藏/编目）+ 插件组，统一由框架渲染与收起
+        EnsureBuiltinToolbarGroup();
+        ViewModel.PluginToolbarGroups.CollectionChanged += (_, _) => Dispatcher.BeginInvoke(new Action(UpdateToolbarOverflow));
+        Loaded += (_, _) =>
+        {
+            EnsureBuiltinToolbarGroup();
+            UpdateToolbarOverflow();
+        };
         // 用 PreviewKeyDown 隧道事件拦截文件操作快捷键...
         PreviewKeyDown += MainWindow_PreviewKeyDown;
     }
@@ -58,6 +70,15 @@ public partial class MainWindow : Window
         else if (e.PropertyName == nameof(MainViewModel.SelectedRemoteLocation))
         {
             Dispatcher.BeginInvoke(new Action(() => SyncRemoteSidebarSelection(ViewModel.SelectedRemoteLocation)), System.Windows.Threading.DispatcherPriority.Background);
+        }
+        else if (e.PropertyName == nameof(MainViewModel.IsCurrentPathFavorited))
+        {
+            // 收藏状态变化（★/☆ 与文案），重建内置组按钮
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                EnsureBuiltinToolbarGroup();
+                UpdateToolbarOverflow();
+            }), System.Windows.Threading.DispatcherPriority.Background);
         }
     }
 
@@ -221,6 +242,8 @@ public partial class MainWindow : Window
 
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
     {
+        // 窗口尺寸变化后重新计算工具栏收起（布局稳定后再算，避免读到旧宽度）
+        Dispatcher.BeginInvoke(new Action(UpdateToolbarOverflow), System.Windows.Threading.DispatcherPriority.Loaded);
         var width = e.NewSize.Width;
         if (width < 900)
         {
@@ -247,65 +270,170 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(new Action(UpdateToolbarOverflow), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
+    /// <summary>
+    /// 工具栏溢出算法（框架级）：
+    /// 工具栏被划分为若干「组」（内置组 + 各插件组）。空间不足时按组从后往前收起，
+    /// 每组至少保留一个按钮（首按钮 + 下拉箭头），按钮全部收进「⋮ 更多」面板。
+    /// 收起/展开逻辑全在宿主，插件只声明图标与提示。
+    /// </summary>
     private void UpdateToolbarOverflow()
     {
         if (ToolbarPanel is null || ToolbarHost is null || ToolbarOverflowButton is null || ToolbarOverflowPanel is null) return;
 
-        // 先假设所有主按钮都在可见区
         ToolbarOverflowButton.Visibility = Visibility.Collapsed;
         ToolbarOverflowPanel.Children.Clear();
 
-        var mainButtons = new List<Button>();
-        foreach (var child in ToolbarPanel.Children)
+        var groups = CollectToolbarGroups();
+        if (groups.Count == 0) return;
+
+        // 先全部按「图标+文字」展开并强制完成布局，拿到各档位的真实宽度
+        foreach (var group in groups)
         {
-            if (child is ToggleButton) continue;     // 跳过 OverflowButton
-            if (child is ItemsControl) continue;       // 跳过插件区
-            if (child is Button btn)
+            group.Layout = ToolbarGroupLayout.Full;
+            group.UseIconsOnly = false;
+        }
+        ToolbarPanel.UpdateLayout();
+        foreach (var group in groups) group.UpdateLayout();
+
+        var available = ToolbarHost.ActualWidth;
+        if (available <= 0) return;
+
+        var widths = groups.Select(g => g.MeasureWidths()).ToList();
+        var plan = ToolbarOverflowPlanner.Compute(available, widths);
+
+        for (var i = 0; i < groups.Count; i++)
+        {
+            var group = groups[i];
+            switch (plan.LayoutOf(i))
             {
-                btn.Visibility = Visibility.Visible;
-                mainButtons.Add(btn);
+                case ToolbarGroupLayout.Full:
+                    group.UseIconsOnly = false;
+                    group.Layout = ToolbarGroupLayout.Full;
+                    break;
+                case ToolbarGroupLayout.IconsOnly:
+                    group.UseIconsOnly = true;
+                    group.Layout = ToolbarGroupLayout.IconsOnly;
+                    break;
+                case ToolbarGroupLayout.Collapsed:
+                    group.UseIconsOnly = true;
+                    group.Layout = ToolbarGroupLayout.Collapsed;
+                    break;
+                case ToolbarGroupLayout.Overflow:
+                    group.Layout = ToolbarGroupLayout.Overflow;
+                    // 组内按钮整体进「⋮ 更多」面板
+                    foreach (var button in group.AllButtons)
+                    {
+                        var copy = new Button
+                        {
+                            Content = button.Content,
+                            Command = button.Command,
+                            ToolTip = button.ToolTip,
+                            Style = button.FindResource("ToolbarButton") as Style,
+                            Padding = new Thickness(8, 5, 8, 5),
+                            Margin = new Thickness(2),
+                            HorizontalContentAlignment = HorizontalAlignment.Left,
+                            MinWidth = 160
+                        };
+                        ToolbarOverflowPanel.Children.Add(copy);
+                    }
+                    group.Visibility = Visibility.Collapsed;
+                    break;
             }
         }
+        ToolbarPanel.UpdateLayout();
 
-        if (mainButtons.Count == 0) return;
+        // 有组被降级或挪走时才显示「更多」按钮
+        var needsOverflow = plan.Layouts.Any(l => l == ToolbarGroupLayout.Overflow);
+        ToolbarOverflowButton.Visibility = needsOverflow ? Visibility.Visible : Visibility.Collapsed;
+    }
 
-        // 确保所有按钮至少被 Measure 一次
-        foreach (var btn in mainButtons)
+    /// <summary>收集工具栏上的所有组：内置组（收藏/编目）+ 各插件组。</summary>
+    private List<ToolbarGroupControl> CollectToolbarGroups()
+    {
+        var groups = new List<ToolbarGroupControl>();
+        if (BuiltinToolbarGroup.Content is ToolbarGroupControl builtin) groups.Add(builtin);
+
+        // ItemsControl.Items 暴露的是数据项（ToolbarGroupVm），容器（ContentPresenter）要通过 ItemContainerGenerator 拿；
+        // ItemTemplate 里包了分隔线+组的 StackPanel，所以在容器子树里递归找 ToolbarGroupControl
+        foreach (var vm in PluginToolbarGroupsHost.Items.OfType<ToolbarGroupVm>())
         {
-            if (btn.ActualWidth <= 0)
-                btn.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            if (PluginToolbarGroupsHost.ItemContainerGenerator.ContainerFromItem(vm) is not ContentPresenter container)
+                continue;
+            if (FindDescendant<ToolbarGroupControl>(container) is { } group)
+                groups.Add(group);
         }
+        return groups;
+    }
 
-        // 用 ActualWidth（优先）或 DesiredSize.Width 累加
-        var totalWidth = mainButtons.Sum(b => b.ActualWidth > 0 ? b.ActualWidth : b.DesiredSize.Width);
-        var available = ToolbarHost.ActualWidth;
-        if (available <= 0 || totalWidth <= available + 2) return; // 留 2px 容差
-
-        // 需要溢出：从最后一个开始移到溢出面板，直到放得下
-        ToolbarOverflowButton.Visibility = Visibility.Visible;
-        var overflowBtnWidth = ToolbarOverflowButton.ActualWidth > 0 ? ToolbarOverflowButton.ActualWidth : 28;
-        var room = available - overflowBtnWidth - 2;
-
-        // 从后往前移，但至少保留第 1 个（收藏文件夹）在主区
-        for (int i = mainButtons.Count - 1; i >= 1 && totalWidth > room; i--)
+    /// <summary>在可视化子树中深度优先查找指定类型的第一个后代元素。</summary>
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         {
-            var btn = mainButtons[i];
-            btn.Visibility = Visibility.Collapsed;
-            totalWidth -= (btn.ActualWidth > 0 ? btn.ActualWidth : btn.DesiredSize.Width);
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            if (FindDescendant<T>(child) is { } deeper) return deeper;
+        }
+        return null;
+    }
 
-            var overflowBtn = new Button
+    /// <summary>主题切换后刷新所有图标：chrome 图标在 XAML 加载时固化颜色，需重新生成 Source；工具栏组重建按钮。</summary>
+    private void RefreshToolbarIcons()
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(RefreshToolbarIcons)); return; }
+        var color = Application.Current.TryFindResource("TextBrush") as SolidColorBrush is { } b ? b.Color : System.Windows.Media.Colors.Black;
+        SetChromeIcon(IconSidebar, KBEA.Core.Plugins.ToolbarIcon.Sidebar, color);
+        SetChromeIcon(IconBack, KBEA.Core.Plugins.ToolbarIcon.Back, color);
+        SetChromeIcon(IconForward, KBEA.Core.Plugins.ToolbarIcon.Forward, color);
+        SetChromeIcon(IconUp, KBEA.Core.Plugins.ToolbarIcon.Up, color);
+        SetChromeIcon(IconRefresh, KBEA.Core.Plugins.ToolbarIcon.Refresh, color);
+        SetChromeIcon(IconSearch, KBEA.Core.Plugins.ToolbarIcon.Search, color);
+        SetChromeIcon(IconPreview, KBEA.Core.Plugins.ToolbarIcon.Preview, color);
+        // 内置组重建按钮（图标取新主题色）；插件组同样重建
+        EnsureBuiltinToolbarGroup();
+        foreach (var group in CollectToolbarGroups()) group.RefreshIcons();
+    }
+
+    private static void SetChromeIcon(System.Windows.Controls.Image? image, KBEA.Core.Plugins.ToolbarIcon icon, System.Windows.Media.Color color)
+    {
+        if (image is not null) image.Source = Controls.ToolbarIconLibrary.Create(icon, color);
+    }
+
+    /// <summary>把内置工具（收藏/编目）包装成一个工具组，与插件组同规则渲染。</summary>
+    private ToolbarGroupControl? EnsureBuiltinToolbarGroup()
+    {
+        if (BuiltinToolbarGroup.Content is ToolbarGroupControl existing)
+        {
+            existing.SetButtons(BuildBuiltinToolbarButtons());
+            return existing;
+        }
+        var group = new ToolbarGroupControl { Title = "常用" };
+        group.SetButtons(BuildBuiltinToolbarButtons());
+        BuiltinToolbarGroup.Content = group;
+        return group;
+    }
+
+    /// <summary>内置工具组的按钮定义（框架自有，不经插件；图标取约定图标集）。</summary>
+    private List<KBEA.Core.Plugins.ToolbarButtonVm> BuildBuiltinToolbarButtons()
+    {
+        var favorite = ViewModel.IsCurrentPathFavorited;
+        return
+        [
+            new KBEA.Core.Plugins.ToolbarButtonVm
             {
-                Content = btn.Content,
-                Command = btn.Command,
-                CommandParameter = btn.CommandParameter,
-                ToolTip = btn.ToolTip,
-                Padding = new Thickness(8, 5, 8, 5),
-                Margin = new Thickness(2),
-                HorizontalContentAlignment = HorizontalAlignment.Left
-            };
-            overflowBtn.Style = btn.FindResource("ToolbarButton") as Style ?? overflowBtn.Style;
-            ToolbarOverflowPanel.Children.Insert(0, overflowBtn);
-        }
+                Icon = KBEA.Core.Plugins.ToolbarIcon.Star,
+                Label = favorite ? "取消" : "收藏",
+                Tooltip = favorite ? "取消收藏当前文件夹" : "收藏当前文件夹",
+                Command = ViewModel.AddFavoriteCommand
+            },
+            new KBEA.Core.Plugins.ToolbarButtonVm
+            {
+                Icon = KBEA.Core.Plugins.ToolbarIcon.Catalog,
+                Label = "编目",
+                Tooltip = "编目：把当前文件归入左侧选中的目录",
+                Command = ViewModel.AssignCategoryCommand
+            }
+        ];
     }
 
     private void Tab_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

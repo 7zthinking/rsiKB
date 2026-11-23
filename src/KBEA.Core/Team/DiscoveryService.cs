@@ -30,6 +30,47 @@ public sealed class DiscoveryService : IDisposable
 
     public event Action? PeersChanged;
 
+    /// <summary>局域网诊断快照：本机广播状态 + mDNS 应答统计 + 网卡信息（供诊断面板展示）。</summary>
+    public sealed record LanDiagnostics(
+        bool Running,
+        int ServicePort,
+        int HttpsPort,
+        IReadOnlyList<string> AdvertiseIps,
+        int AnswerTotal,
+        int AnswerSelfIgnored,
+        int AnswerNameMismatch,
+        IReadOnlyList<string> Interfaces);
+
+    /// <summary>mDNS 应答计数（含被过滤的），lock(_sync) 下更新。</summary>
+    private int _answerTotal, _answerSelfIgnored, _answerNameMismatch;
+
+    /// <summary>取诊断快照：广播 IP、应答统计、Up 状态网卡（IP+网关）。</summary>
+    public LanDiagnostics GetDiagnostics()
+    {
+        lock (_sync)
+        {
+            var interfaces = new List<string>();
+            try
+            {
+                foreach (var n in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (n.OperationalStatus != OperationalStatus.Up) continue;
+                    var ip = n.GetIPProperties().GatewayAddresses.Count > 0
+                        ? string.Join(", ", n.GetIPProperties().GatewayAddresses.Select(g => g.Address))
+                        : "无网关";
+                    interfaces.Add($"{n.NetworkInterfaceType} | {ip} | {string.Join(", ", n.GetIPProperties().UnicastAddresses.Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork).Select(a => a.Address))}");
+                }
+            }
+            catch (Exception ex) when (ex is NetworkInformationException or PlatformNotSupportedException) { }
+
+            var advertised = _profile is not null
+                ? GetAdvertiseAddresses().Select(a => a.ToString()).ToList()
+                : [];
+            return new LanDiagnostics(_running, ServicePort, ServiceHttpsPort, advertised,
+                _answerTotal, _answerSelfIgnored, _answerNameMismatch, interfaces);
+        }
+    }
+
     public DiscoveryService(MachineIdentity identity, Func<List<string>> teamIdProvider)
     {
         _identity = identity;
@@ -85,6 +126,24 @@ public sealed class DiscoveryService : IDisposable
         {
             // mDNS 失效不致命，降级为手动地址模式
         }
+    }
+
+    /// <summary>
+    /// 主动发起一轮 mDNS 查询并等待应答落缓存。应答是异步到达的（OnAnswerReceived），
+    /// 需要短码换取等"先发现后连接"的场景必须在遍历 peer 前调用本方法刷新在线列表。
+    /// </summary>
+    public async Task QueryPeersAsync(int waitMs = 2500)
+    {
+        if (!_running || _sdns is null) return;
+        try
+        {
+            _sdns.QueryServiceInstances(new DomainName(ServiceName));
+        }
+        catch (Exception ex) when (ex is SocketException or IOException)
+        {
+            return;
+        }
+        await Task.Delay(waitMs).ConfigureAwait(false);
     }
 
     private void Advertise()
@@ -165,11 +224,20 @@ public sealed class DiscoveryService : IDisposable
             }
 
             if (srv is null || txt is null) return;
-            if (!srv.Name.ToString().Contains(ServiceName, StringComparison.Ordinal)) return;
+            lock (_sync) { _answerTotal++; }
+            if (!srv.Name.ToString().Contains(ServiceName, StringComparison.Ordinal))
+            {
+                lock (_sync) { _answerNameMismatch++; }
+                return;
+            }
 
             var properties = ParseTxtProperties(txt.Strings);
             if (properties is null || !properties.TryGetValue("mc", out var machineCode)) return;
-            if (machineCode == _identity.MachineCode) return; // 忽略本机回环
+            if (machineCode == _identity.MachineCode) // 忽略本机回环（同机多实例机器码相同也会走到这里）
+            {
+                lock (_sync) { _answerSelfIgnored++; }
+                return;
+            }
 
             PeerInfo peer;
             bool changed;

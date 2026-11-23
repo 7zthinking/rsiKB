@@ -216,6 +216,26 @@ public sealed class MetadataStore
         return result;
     }
 
+    /// <summary>列出该空间已索引的全部文件资料（按名称排序），供目录编目视图统计使用。</summary>
+    public IReadOnlyList<FileEntry> GetAllFiles(int limit = 500)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT RelativePath,Name,Size,LastWriteUtc FROM file_index ORDER BY Name LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$limit", limit);
+        using var reader = command.ExecuteReader();
+        var result = new List<FileEntry>();
+        while (reader.Read())
+        {
+            var relative = reader.GetString(0);
+            result.Add(new FileEntry(reader.GetString(1), Path.Combine(_mountPath, relative), relative, false,
+                reader.GetInt64(2), DateTimeOffset.Parse(reader.GetString(3)).LocalDateTime));
+        }
+        return result;
+    }
+
     public string ExportCatalogSnapshot(SpaceDefinition space, IReadOnlyList<DirectoryDefinition> directories)
     {
         var directory = Path.Combine(MetadataPath, "catalog");

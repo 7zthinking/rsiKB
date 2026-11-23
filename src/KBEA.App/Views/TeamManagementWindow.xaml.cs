@@ -43,7 +43,8 @@ public partial class TeamManagerViewModel : ObservableObject
         RemoveShareCommand = new RelayCommand<ShareRow>(RemoveShare, row => SelectedTeam is not null);
         GenerateInviteCommand = new RelayCommand(GenerateInvite, () => SelectedTeam is not null && SelectedTeam.IsOwner);
         LeaveTeamCommand = new RelayCommand(LeaveTeam, () => SelectedTeam is not null);
-        FirewallCheckCommand = new RelayCommand(ShowFirewallGuideIfNeeded);
+        FirewallCheckCommand = new RelayCommand(() => ShowFirewallGuideIfNeeded(manual: true));
+        LanDiagnosticsCommand = new RelayCommand(OpenLanDiagnostics);
     }
 
     public ObservableCollection<TeamCardItem> Teams { get; } = [];
@@ -62,6 +63,7 @@ public partial class TeamManagerViewModel : ObservableObject
     public RelayCommand GenerateInviteCommand { get; }
     public RelayCommand LeaveTeamCommand { get; }
     public RelayCommand FirewallCheckCommand { get; }
+    public RelayCommand LanDiagnosticsCommand { get; }
 
     partial void OnSelectedTeamChanged(TeamCardItem? value) => RefreshDetail();
 
@@ -142,14 +144,19 @@ public partial class TeamManagerViewModel : ObservableObject
         Refresh();
     }
 
-    /// <summary>首跑引导：新建团队时检查防火墙放行规则，缺失则弹出引导。</summary>
-    private void ShowFirewallGuideIfNeeded()
+    /// <summary>防火墙检测：手动点击时反馈检测结果；自动调用（新建团队/邀请前）规则齐全时静默跳过。</summary>
+    private void ShowFirewallGuideIfNeeded(bool manual = false)
     {
         try
         {
             var port = _team.ServerPort;
             if (port == 0) return;
-            if (FirewallGuide.RulesReady(port) && FirewallGuide.ServiceRuleMatches(port)) return;
+            if (FirewallGuide.RulesReady(port) && FirewallGuide.ServiceRuleMatches(port))
+            {
+                if (manual)
+                    _dialogs.Info($"防火墙规则已就绪：mDNS 5353/UDP 与服务端口 {port}-{port + 5}/TCP 放行规则均存在，其他设备可以发现并连接本机。");
+                return;
+            }
             var guide = new FirewallGuideWindow(port) { Owner = System.Windows.Application.Current.MainWindow };
             guide.ShowDialog();
         }
@@ -157,6 +164,13 @@ public partial class TeamManagerViewModel : ObservableObject
         {
             // 检查失败不阻塞团队创建流程
         }
+    }
+
+    /// <summary>局域网诊断面板：可视化查看 mDNS 发现链路与端口连通性。</summary>
+    private void OpenLanDiagnostics()
+    {
+        var win = new LanDiagnosticsWindow(_team) { Owner = System.Windows.Application.Current.MainWindow };
+        win.ShowDialog();
     }
 
     private void AddShare()
@@ -198,6 +212,8 @@ public partial class TeamManagerViewModel : ObservableObject
     {
         var code = _dialogs.Prompt("加入团队", "粘贴邀请码（KBEA-XXXX-XXXX）");
         if (string.IsNullOrWhiteSpace(code)) return;
+        // 加入方同样要收 mDNS 应答（inbound 5353）：规则缺失时先引导放行
+        ShowFirewallGuideIfNeeded();
         var (success, message) = await _team.JoinTeamAsync(code.Trim());
         _dialogs.Info(message, success ? "加入团队" : "加入失败");
         if (success) Refresh();

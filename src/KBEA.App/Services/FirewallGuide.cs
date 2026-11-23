@@ -20,15 +20,20 @@ public static class FirewallGuide
     }
 
     /// <summary>服务端口对应的 TCP 放行规则是否存在，且端口范围覆盖 servicePort..servicePort+5（兼容旧单端口规则）。</summary>
+    /// <remarks>不能用 netsh 文本解析：中文系统输出字段是「本地端口:」而非 "LocalPort:"，永远匹配不到。
+    /// 改用 PowerShell 对象查询（属性名 LocalPort 不本地化，值 "Any"/"52235-52240" 也保持原始形式）。</remarks>
     public static bool ServiceRuleMatches(int servicePort)
     {
-        var output = RunNetsh($"advfirewall firewall show rule name=\"{ServiceRuleName}\"");
-        if (output is null) return false;
+        var output = RunPowerShell(
+            $"Get-NetFirewallRule -DisplayName '{ServiceRuleName}' -ErrorAction SilentlyContinue | " +
+            "Get-NetFirewallPortFilter | ForEach-Object { $_.LocalPort }");
+        if (string.IsNullOrWhiteSpace(output)) return false;
         foreach (var line in output.Split('\n'))
         {
             var trimmed = line.Trim();
-            if (!trimmed.StartsWith("LocalPort:", StringComparison.OrdinalIgnoreCase)) continue;
-            return PortRangeCovers(trimmed["LocalPort:".Length..].Trim(), servicePort, servicePort + 5);
+            if (trimmed.Length == 0) continue;
+            if (trimmed.Equals("Any", StringComparison.OrdinalIgnoreCase)) return true; // 任何端口 → 必然覆盖
+            if (PortRangeCovers(trimmed, servicePort, servicePort + 5)) return true;
         }
         return false;
     }
@@ -118,6 +123,31 @@ public static class FirewallGuide
             if (process is null) return null;
             var output = process.StandardOutput.ReadToEnd();
             process.WaitForExit(5000);
+            return process.ExitCode == 0 ? output : null;
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>运行 PowerShell 查询并返回 stdout（属性名/值不随系统语言本地化，适合结构化检查）。</summary>
+    private static string? RunPowerShell(string command)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            });
+            if (process is null) return null;
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(8000);
             return process.ExitCode == 0 ? output : null;
         }
         catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException)

@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using KBEA.App.Services;
 using KBEA.Core.Files;
 using KBEA.Core.Git;
 using KBEA.Core.Models;
@@ -20,7 +21,6 @@ public sealed partial class MountTabViewModel : ObservableObject
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase) { ".txt", ".md", ".json", ".xml", ".csv", ".log", ".cs", ".xaml", ".sql", ".py", ".js", ".html", ".css", ".yml", ".yaml" };
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp" };
     private readonly FileBrowserService _files;
-    private readonly GitService _git;
     private readonly Stack<string> _back = new();
     private readonly Stack<string> _forward = new();
     private string _currentPath;
@@ -33,6 +33,9 @@ public sealed partial class MountTabViewModel : ObservableObject
     private bool _isPreviewVisible = true;
     private string? _catalogDirectoryName;
     private bool _disposed;
+
+    /// <summary>P4 详情面板插件动态字段（选中文件变化时由插件贡献刷新）。</summary>
+    public System.Collections.ObjectModel.ObservableCollection<PluginFieldRow> PluginFields { get; } = [];
 
     /// <summary>标签是否已关闭。关闭后不再回填任何后台结果。</summary>
     public bool IsDisposed => _disposed;
@@ -57,20 +60,19 @@ public sealed partial class MountTabViewModel : ObservableObject
     public static bool HasClipboard => _clipboardPaths.Count > 0;
     public static bool CanPasteTo(string targetDir) => HasClipboard && Directory.Exists(targetDir);
 
-    public MountTabViewModel(SpaceDefinition space, FileBrowserService files, GitService git)
+    public MountTabViewModel(SpaceDefinition space, FileBrowserService files)
     {
         _workspaceSpace = space;
         _isLocal = false;
         _sourceKind = TabSourceKind.Workspace;
         RootPath = space.Path;
         _files = files;
-        _git = git;
         _metadata = new MetadataStore(space.Path);
         _currentPath = space.Path;
         Initialize();
     }
 
-    public MountTabViewModel(string path, FileBrowserService files, GitService git)
+    public MountTabViewModel(string path, FileBrowserService files)
     {
         var fullPath = Path.GetFullPath(path);
         var rootPath = Path.GetPathRoot(fullPath) ?? fullPath;
@@ -80,12 +82,11 @@ public sealed partial class MountTabViewModel : ObservableObject
         _isLocal = true;
         _sourceKind = TabSourceKind.Local;
         _files = files;
-        _git = git;
         _currentPath = fullPath;
         Initialize();
     }
 
-    public MountTabViewModel(RemoteLocationDefinition location, string path, FileBrowserService files, GitService git)
+    public MountTabViewModel(RemoteLocationDefinition location, string path, FileBrowserService files)
     {
         _transientSpace.Name = location.Name;
         _transientSpace.Path = path;
@@ -94,12 +95,11 @@ public sealed partial class MountTabViewModel : ObservableObject
         _sourceKind = TabSourceKind.Remote;
         RemoteLocation = location;
         _files = files;
-        _git = git;
         _currentPath = path;
         Initialize();
     }
 
-    public MountTabViewModel(FileBrowserService files, GitService git)
+    public MountTabViewModel(FileBrowserService files)
     {
         _transientSpace.Name = ComputerPath;
         _transientSpace.Path = ComputerPath;
@@ -107,7 +107,6 @@ public sealed partial class MountTabViewModel : ObservableObject
         _isLocal = true;
         _sourceKind = TabSourceKind.Local;
         _files = files;
-        _git = git;
         _currentPath = ComputerPath;
         Initialize();
     }
@@ -121,7 +120,6 @@ public sealed partial class MountTabViewModel : ObservableObject
         _sourceKind = TabSourceKind.Local;
         IsPlaceholder = true;
         _files = null!;
-        _git = null!;
         _metadata = null;
         _currentPath = string.Empty;
     }
@@ -546,13 +544,20 @@ public sealed partial class MountTabViewModel : ObservableObject
         _ = RefreshGitStatusAsync();
     }
 
-    /// <summary>后台刷新 Git 状态与文件状态标记。</summary>
-    private async Task RefreshGitStatusAsync()
+    /// <summary>后台刷新 Git 状态与文件状态标记（Git 实现在 kbea-plugin-git，未加载时按"不在仓库中"降级）。</summary>
+    public async Task RefreshGitStatusAsync()
     {
         try
         {
+            var git = GitOperationsProvider.Instance;
+            if (git is null)
+            {
+                GitRepositoryRoot = string.Empty;
+                GitStatus = new GitStatusInfo(false, 0, string.Empty, string.Empty, 0);
+                return;
+            }
             var path = CurrentPath;
-            var root = await Task.Run(() => _git.DiscoverRepositoryRoot(path));
+            var root = await Task.Run(() => git.DiscoverRepositoryRoot(path));
             if (root is null)
             {
                 GitRepositoryRoot = string.Empty;
@@ -561,7 +566,7 @@ public sealed partial class MountTabViewModel : ObservableObject
             }
 
             // 一次扫描同时取回仓库概览与文件状态（原先分成两次 RetrieveStatus，大仓库要扫两遍）
-            var snapshot = await Task.Run(() => _git.GetSnapshot(root));
+            var snapshot = await Task.Run(() => git.GetSnapshot(root));
 
             // 期间可能已经切换目录，或标签已被关闭 → 丢弃过期结果
             if (!string.Equals(path, CurrentPath, StringComparison.OrdinalIgnoreCase)) return;
@@ -571,8 +576,10 @@ public sealed partial class MountTabViewModel : ObservableObject
             GitStatus = snapshot.Status;
             ApplyFileStates(snapshot.FileStates);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception ex)
         {
+            // Git 状态刷新是后台丢弃型任务（`_ =`），任何异常都必须落日志，否则插件/本机库加载问题无从排查
+            DiagLog.Exception($"GitStatus 刷新失败 ({CurrentPath})", ex);
             GitStatus = new GitStatusInfo(false, 0, string.Empty, string.Empty, 0);
         }
     }
@@ -665,6 +672,8 @@ public sealed partial class MountTabViewModel : ObservableObject
     private void UpdatePreview()
     {
         PreviewImage = null;
+        RefreshPluginFields();
+        var bridge = Services.PluginBridge.Instance;
         if (SelectedFile is null || SelectedFile.IsDirectory || !File.Exists(SelectedFile.FullPath))
         {
             PreviewText = SelectedFile?.IsDirectory == true ? "文件夹。双击可打开。" : "选择文本文件或图片可在此预览。";
@@ -672,6 +681,28 @@ public sealed partial class MountTabViewModel : ObservableObject
         }
         try
         {
+            // P4 预览链第一棒：插件按扩展名接手，未命中走内置渲染
+            var pluginPreview = bridge?.TryPluginPreview(SelectedFile.FullPath);
+            if (pluginPreview is { } hit)
+            {
+                if (hit.ImageData is { Length: > 0 } bytes)
+                {
+                    var image = new BitmapImage();
+                    using var stream = new MemoryStream(bytes);
+                    image.BeginInit();
+                    image.CacheOption = BitmapCacheOption.OnLoad;
+                    image.StreamSource = stream;
+                    image.EndInit();
+                    image.Freeze();
+                    PreviewImage = image;
+                    PreviewText = string.Empty;
+                }
+                else
+                {
+                    PreviewText = hit.Text;
+                }
+                return;
+            }
             if (ImageExtensions.Contains(Path.GetExtension(SelectedFile.Name)))
             {
                 var image = new BitmapImage();
@@ -690,6 +721,16 @@ public sealed partial class MountTabViewModel : ObservableObject
         {
             PreviewText = $"预览失败：{ex.Message}";
         }
+    }
+
+    /// <summary>P4：选中文件变化后刷新插件动态字段（失败静默，不影响内置 6 行）。</summary>
+    private void RefreshPluginFields()
+    {
+        PluginFields.Clear();
+        var path = SelectedFile?.FullPath;
+        if (string.IsNullOrEmpty(path)) return;
+        foreach (var (name, value) in Services.PluginBridge.GetPluginFields(path))
+            PluginFields.Add(new PluginFieldRow(name, value));
     }
 
     // === 文件操作 ===
@@ -927,4 +968,11 @@ public sealed class FolderNodeViewModel : ObservableObject
 
     /// <summary>UIA/读屏等场景用目录名作为元素名（默认 ToString 会暴露类名）。</summary>
     public override string ToString() => Name;
+}
+
+/// <summary>P4 详情面板插件动态字段行（名称 + 值，绑定插件字段 ItemsControl 模板）。</summary>
+public sealed record PluginFieldRow(string Name, string Value)
+{
+    /// <summary>UIA/读屏等场景用「名称: 值」作为元素名。</summary>
+    public override string ToString() => $"{Name}: {Value}";
 }

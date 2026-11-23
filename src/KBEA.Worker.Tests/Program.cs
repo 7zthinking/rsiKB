@@ -3,6 +3,10 @@ using System.Text;
 using KBEA.Core.Knowledge;
 using KBEA.Core.Plugins;
 
+// P3：Ingest 引擎随 kbea-plugin-wiki 分发，测试进程内直接注册插件实现
+// （等价于真实 Worker 启动时 PluginLoader 加载 metadata 能力插件的 Init 效果）
+WikiOperationsProvider.Register(new KnowledgeIngestService());
+
 // 供进程隔离验证使用：enqueue <空间路径> <任务库路径>
 if (args.Length >= 2 && args[0] == "enqueue")
 {

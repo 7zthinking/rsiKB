@@ -178,6 +178,7 @@
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         </Style>
         <Style TargetType="TreeViewItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Padding" Value="3,5" />
             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -374,6 +375,15 @@
         </Style>
         <Style TargetType="ToolTip">
             <Setter Property="Background" Value="{DynamicResource CardBackground}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        </Style>
+        <!-- 右键菜单跟随主题（默认系统样式在 dark 下是白底黑字） -->
+        <Style TargetType="ContextMenu">
+            <Setter Property="Background" Value="{DynamicResource CardBackground}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+        </Style>
+        <Style TargetType="MenuItem">
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         </Style>
     </Application.Resources>

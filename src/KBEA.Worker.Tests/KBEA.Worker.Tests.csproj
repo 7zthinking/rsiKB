@@ -11,6 +11,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KBEA.Core\KBEA.Core.csproj" />
+    <!-- Ingest 引擎已随 P3 迁入 kbea-plugin-wiki：测试进程内直接注册插件实现，
+         等价于真实 Worker 启动时加载 metadata 能力插件的效果 -->
+    <ProjectReference Include="..\KBEA.Plugin.Wiki\KBEA.Plugin.Wiki.csproj" />
   </ItemGroup>
 
 </Project>

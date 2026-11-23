@@ -26,10 +26,21 @@ public sealed partial class KnowledgeSearchViewModel : ObservableObject
             if (hit is null) return;
             OpenRequested?.Invoke(hit.Hit);
         });
+        OpenFolderCommand = new RelayCommand<SearchHitItem>(hit =>
+        {
+            if (hit is null) return;
+            OpenFolderRequested?.Invoke(hit.Hit);
+        });
     }
 
     /// <summary>请求打开命中文件（由 MainViewModel 接管）。</summary>
     public Action<KnowledgeSearchService.SearchHit>? OpenRequested { get; set; }
+
+    /// <summary>请求在浏览视图打开命中文件所在文件夹（由 MainViewModel 接管；团队共享命中忽略）。</summary>
+    public Action<KnowledgeSearchService.SearchHit>? OpenFolderRequested { get; set; }
+
+    /// <summary>图标路径解析：命中项 → (绝对路径, 是否目录)。由 MainViewModel 注入（空间根 + 相对路径）。</summary>
+    public Func<KnowledgeSearchService.SearchHit, (string Path, bool IsDirectory)>? IconResolver { get; set; }
 
     /// <summary>预览加载委托：传入完整路径，返回 (图片, 文本)。由 MainViewModel 注入。</summary>
     public Func<string, (BitmapImage? Image, string Text)>? PreviewLoader { get; set; }
@@ -48,6 +59,7 @@ public sealed partial class KnowledgeSearchViewModel : ObservableObject
     public RelayCommand ClearCommand { get; }
     public RelayCommand<SearchHitItem> ToggleSiblingsCommand { get; }
     public RelayCommand<SearchHitItem> OpenHitCommand { get; }
+    public RelayCommand<SearchHitItem> OpenFolderCommand { get; }
 
     public bool HasResult => Hits.Count > 0;
     public bool HasImagePreview => PreviewImage is not null;
@@ -96,6 +108,8 @@ public sealed partial class KnowledgeSearchViewModel : ObservableObject
         {
             var item = new SearchHitItem(hit);
             item.BuildTags();
+            var icon = IconResolver?.Invoke(hit);
+            if (icon is { } value) item.ResolveIcon(value.Path);
             Hits.Add(item);
         }
 

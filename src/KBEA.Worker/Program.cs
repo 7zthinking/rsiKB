@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using KBEA.Core.Knowledge;
+using KBEA.Core.Plugins;
 using KBEA.Core.Storage;
 
 namespace KBEA.Worker;
@@ -31,6 +32,10 @@ internal static class Program
 
         var jobStore = new MetadataJobStore(options.DatabasePath);
         jobStore.Initialize();
+
+        // 在启动调度器前加载插件：Worker 只加载声明 metadata 能力的元数据类插件，
+        // UI 类插件（toolbar/git/wiki…）在 Worker 内跳过。单个插件失败只记日志。
+        LoadPlugins();
 
         var spaces = LoadSpaces(options.ConfigPath);
         var scheduler = new MetadataScheduler(jobStore, () => spaces);
@@ -69,6 +74,40 @@ internal static class Program
         var executed = scheduler.RunLoop(shutdown.Token, Log);
         Log($"Worker 退出，本次共执行 {executed} 个任务");
         return 0;
+    }
+
+    /// <summary>发现并加载 plugins 目录下声明 metadata 能力的插件（AppContext.BaseDirectory/plugins）。</summary>
+    private static void LoadPlugins()
+    {
+        try
+        {
+            var candidates = new PluginCatalog().DiscoverWithDirectories()
+                .Where(p => p.Manifest.Enabled && p.Manifest.HasCapability("metadata"))
+                .ToList();
+            var loaded = new PluginLoader().Load(candidates, new WorkerPluginHost());
+            var count = 0;
+            foreach (var plugin in loaded)
+            {
+                if (plugin.SkipReason is not null)
+                {
+                    Log($"插件 {plugin.Manifest.Id} 跳过：{plugin.SkipReason}");
+                    continue;
+                }
+                if (plugin.Error is not null)
+                {
+                    Log($"插件 {plugin.Manifest.Id} 加载失败：{plugin.Error.Message}");
+                    continue;
+                }
+                count++;
+                Log($"插件已加载：{plugin.Manifest.Id} v{plugin.Manifest.Version}");
+            }
+            Log($"已加载插件：{count} 个");
+        }
+        catch (Exception ex)
+        {
+            // 插件目录不可读等异常不阻断 Worker 启动
+            Log($"插件加载失败：{ex.Message}");
+        }
     }
 
     private static IReadOnlyList<SpaceDefinitionLite> LoadSpaces(string? configPath)
@@ -136,5 +175,41 @@ internal sealed class WorkerOptions
             }
         }
         return options;
+    }
+}
+
+/// <summary>
+/// Worker 内的精简插件宿主：元数据工具可用；UI 注册为 no-op，侧栏/浏览快照为空。
+/// </summary>
+internal sealed class WorkerPluginHost : IPluginHostContext
+{
+    /// <summary>与 App 侧 MainViewModel.Version 的语义版本保持一致。</summary>
+    private const string HostVersionValue = "0.3.0";
+
+    public string HostVersion => HostVersionValue;
+    public IMetadataWorkbench Metadata { get; } = new MetadataWorkbench();
+    public ISidebarState Sidebar { get; } = new EmptySidebarState();
+    public IBrowserState Browser { get; } = new EmptyBrowserState();
+    public IUiSurface Ui { get; } = new NoopUiSurface();
+    public KBEA.Core.Plugins.IGitUiCommands? GitUi => null; // Worker 无 UI，Git 插件在 Worker 内不注册按钮
+    public KBEA.Core.Plugins.IWikiUiCommands? WikiUi => null; // Worker 无 UI，WIKI 插件在 Worker 内只注册 Ingest 实现
+
+    private sealed class EmptySidebarState : ISidebarState
+    {
+        public SidebarSnapshot Current { get; } = new(string.Empty, null, 0);
+        public event EventHandler? Changed { add { } remove { } }
+    }
+
+    private sealed class EmptyBrowserState : IBrowserState
+    {
+        public BrowserSnapshot Current { get; } = new(null, null, null, 0, null);
+        public event EventHandler? Changed { add { } remove { } }
+    }
+
+    private sealed class NoopUiSurface : IUiSurface
+    {
+        public void AddToolbarGroup(ToolbarGroupVm group) { }
+        public void RemoveToolbarGroup(ToolbarGroupVm group) { }
+        public void SetGlobalStatus(string message) { }
     }
 }

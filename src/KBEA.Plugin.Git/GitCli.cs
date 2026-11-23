@@ -3,22 +3,10 @@ using System.Text;
 
 namespace KBEA.Core.Git;
 
-/// <summary>命令行 git 调用结果。</summary>
-public sealed record GitCommandResult(int ExitCode, string StandardOutput, string StandardError)
-{
-    public bool Succeeded => ExitCode == 0;
-    public string Output => string.IsNullOrWhiteSpace(StandardError) ? StandardOutput : StandardError;
-}
-
-/// <summary>命令行 git 执行失败时抛出，消息已翻译为中文。</summary>
-public sealed class GitCommandException(string message, GitCommandResult result) : Exception(message)
-{
-    public GitCommandResult Result { get; } = result;
-}
-
 /// <summary>
-/// 通过命令行执行 git。系统里的 url 重写规则（insteadOf / pushInsteadOf）、
-/// 凭据助手（GitHub CLI / 凭据管理器）和代理设置都会被 git 自动继承。
+/// 通过命令行执行 git（实现随 P2 迁入 kbea-plugin-git）。系统里的 url 重写规则
+/// （insteadOf / pushInsteadOf）、凭据助手（GitHub CLI / 凭据管理器）和代理设置都会被 git 自动继承。
+/// GitCommandResult / GitCommandException 契约类型仍在 Core。
 /// </summary>
 public static class GitCli
 {

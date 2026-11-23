@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Security.Cryptography;
-using System.Text.Json;
 using KBEA.Core.Plugins;
 
 namespace KBEA.Core.Knowledge;
@@ -8,43 +7,18 @@ namespace KBEA.Core.Knowledge;
 /// <summary>
 /// Ingest 管线：发现 → 哈希 → 规则标签 + facts → 聚类 → describe 骨架 → 查询投影。
 /// 全部本地计算，无模型依赖；扫描结果写 catalog/{hash}.json（可进 git）。
+/// P3 起实现随 kbea-plugin-wiki 分发（docs/plugin-architecture.md §5）；
+/// 命名空间保持 KBEA.Core.Knowledge：契约与报告类型同源，宿主侧只需经 IWikiOperations 解析。
 /// </summary>
-public sealed class KnowledgeIngestService
+public sealed class KnowledgeIngestService : IWikiOperations
 {
     private readonly PluginManager _plugins = PluginManager.Instance;
-
-    /// <summary>整理结果统计。</summary>
-    public sealed class IngestReport
-    {
-        public int Scanned { get; set; }
-        public int Created { get; set; }
-        public int Updated { get; set; }
-        public int Unchanged { get; set; }
-        public int Removed { get; set; }
-        public int RemovedDescribes { get; set; }
-        public int Clusters { get; set; }
-        public int Describes { get; set; }
-        public TimeSpan Elapsed { get; set; }
-        public string SpacePath { get; set; } = string.Empty;
-
-        /// <summary>本次执行对应的层级。</summary>
-        public MetadataJobKind Layer { get; set; } = MetadataJobKind.Basic;
-
-        public string Summary =>
-            $"扫描 {Scanned} 个文件 · 新建 {Created} · 更新 {Updated} · 未变 {Unchanged} · 清理 {Removed} · 版本簇 {Clusters} · 描述 {Describes}";
-    }
-
-    /// <summary>分层执行的细粒度进度。</summary>
-    public readonly record struct LayerProgress(string Stage, int Processed, int Total);
 
     /// <summary>对整个空间执行一次整理（等价于只跑基础层）。</summary>
     public IngestReport Ingest(string spacePath, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
         => IngestLayer(spacePath, MetadataJobKind.Basic, progress, null, null, cancellationToken);
 
-    /// <summary>
-    /// 执行指定层级的元数据整理。
-    /// 基础层做全量扫描与规则打标；类型层/专题层在已有 catalog 上叠加对应插件的产出。
-    /// </summary>
+    /// <inheritdoc />
     public IngestReport IngestLayer(
         string spacePath,
         MetadataJobKind kind,
@@ -202,10 +176,9 @@ public sealed class KnowledgeIngestService
         var relative = Path.GetRelativePath(root, filePath).Replace('/', '\\');
         var format = RuleTagger.ResolveFormat(extension);
 
-        // facts：内置提取器 + 插件扩展属性
+        // facts：内置提取器 + 插件扩展属性（按扩展名分发到全部匹配插件，逐个合并）
         var (facts, properties) = FactsExtractor.Extract(filePath, extension);
-        var plugin = _plugins.GetPluginForExtension(extension);
-        if (plugin is not null)
+        foreach (var plugin in _plugins.GetPluginsForExtension(extension))
         {
             try
             {
@@ -222,7 +195,7 @@ public sealed class KnowledgeIngestService
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
                 or NotSupportedException)
             {
-                // 插件失败不阻断
+                // 单个插件失败不阻断其他插件，更不阻断整体整理
             }
         }
 
@@ -283,8 +256,10 @@ public sealed class KnowledgeIngestService
         if (!existing.TryGetValue(hash, out var baseEntry)) return null;
 
         var level = MetadataLevelMapping.ToLevel(kind);
-        var plugin = _plugins.GetPluginForExtension(extension);
-        if (plugin is null || plugin.Level != level || !plugin.Enabled) return null;
+        var plugins = _plugins.GetPluginsForExtension(extension)
+            .Where(p => p.Level == level && p.Enabled)
+            .ToList();
+        if (plugins.Count == 0) return null;
 
         var relative = Path.GetRelativePath(root, filePath).Replace('/', '\\');
         var entry = new CatalogEntry
@@ -307,38 +282,54 @@ public sealed class KnowledgeIngestService
             PluginState = baseEntry.PluginState
         };
 
-        try
+        var contributors = new List<string>();
+        foreach (var plugin in plugins)
         {
-            var metadata = plugin.Scan(filePath);
-            foreach (var (key, value) in metadata.ExtendedProperties)
+            try
             {
-                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
-                    entry.Facts[key] = number;
-                else
-                    entry.Properties[key] = value;
-            }
-            foreach (var tag in metadata.Tags)
-            {
-                var namespaced = $"{level.ToString().ToLowerInvariant()}/{tag}";
-                if (!entry.Tags.Contains(namespaced, StringComparer.OrdinalIgnoreCase))
-                    entry.Tags.Add(namespaced);
-            }
+                var metadata = plugin.Scan(filePath);
+                foreach (var (key, value) in metadata.ExtendedProperties)
+                {
+                    if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
+                        entry.Facts[key] = number;
+                    else
+                        entry.Properties[key] = value;
+                }
+                foreach (var tag in metadata.Tags)
+                {
+                    var namespaced = $"{level.ToString().ToLowerInvariant()}/{tag}";
+                    if (!entry.Tags.Contains(namespaced, StringComparer.OrdinalIgnoreCase))
+                        entry.Tags.Add(namespaced);
+                }
 
-            // 类型层插件可追加结构化摘要行，写入 describe 的 highlights 段
-            if (plugin is ITypeMetadataPlugin typePlugin)
-            {
-                var highlights = typePlugin.DescribeHighlights(filePath, metadata);
-                if (highlights.Count > 0)
-                    entry.Properties["type_highlights"] = string.Join(" | ", highlights);
-            }
+                // 类型层插件可追加结构化摘要行，写入 describe 的 highlights 段
+                if (plugin is ITypeMetadataPlugin typePlugin)
+                {
+                    var highlights = typePlugin.DescribeHighlights(filePath, metadata);
+                    if (highlights.Count > 0)
+                    {
+                        var joined = string.Join(" | ", highlights);
+                        entry.Properties["type_highlights"] = entry.Properties.TryGetValue("type_highlights", out var prior)
+                            ? $"{prior} | {joined}" : joined;
+                    }
+                }
 
-            entry.Properties[$"metadata_{level.ToString().ToLowerInvariant()}_at"] = DateTimeOffset.Now.ToString("O");
-            entry.Generator = $"{level.ToString().ToLowerInvariant()}+plugin:{plugin.PluginId}";
+                contributors.Add(plugin.PluginId);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+                or NotSupportedException)
+            {
+                // 单个插件失败不阻断其他插件
+            }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
-            or NotSupportedException)
+
+        // 有插件实际产出时登记生成时间与生成器（多插件合并记录全部贡献者）
+        if (contributors.Count > 0)
         {
-            // 插件失败不阻断
+            entry.Properties[$"metadata_{level.ToString().ToLowerInvariant()}_at"] = DateTimeOffset.Now.ToString("O");
+            entry.Generator = contributors.Count == 1
+                ? $"{level.ToString().ToLowerInvariant()}+plugin:{contributors[0]}"
+                : $"{level.ToString().ToLowerInvariant()}+plugins:{string.Join(",", contributors)}";
         }
 
         return entry;

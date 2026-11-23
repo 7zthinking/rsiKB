@@ -1,0 +1,9 @@
+{
+  "id": "kbea-plugin-sample",
+  "name": "示例插件",
+  "version": "0.1.0",
+  "entryAssembly": "KBEA.Plugin.Sample.dll",
+  "capabilities": [ "toolbar", "metadata", "fields", "preview", "settings" ],
+  "minHostVersion": "0.3.0",
+  "enabled": true
+}

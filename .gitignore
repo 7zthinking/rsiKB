@@ -1,4 +1,4 @@
-# Build outputs
+﻿# Build outputs
 bin/
 obj/
 artifacts/
@@ -29,6 +29,13 @@ plugins/*
 *.tmp
 *.temp
 ~$*
+
+# 项目管理/设计文档（本地，不进开源仓库）
+pm/
+
+# 一次性诊断探针工具（含本地绝对路径，不进仓库）
+tools/IconProbe/
+tools/MetaQuery/
 Thumbs.db
 *.tif
 *.tiff
