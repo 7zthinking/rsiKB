@@ -7,6 +7,7 @@
 - LibGit2Sharp / LibGit2Sharp.NativeBinaries — MIT / libgit2 原许可证
 - Microsoft.Data.Sqlite / SQLitePCLRaw — Microsoft .NET Library / SQLite 公共领域等相应许可证
 - Microsoft.Extensions.DependencyInjection — MIT
+- YamlDotNet — MIT
 - xUnit、Microsoft.NET.Test.Sdk、coverlet.collector — 各自开源许可证，仅用于测试
 
 完整版权和许可证文本以 NuGet 包内的 license 文件及上游项目为准。绿色版还包含 Microsoft .NET 8 运行时，其许可见 https://github.com/dotnet/runtime 。

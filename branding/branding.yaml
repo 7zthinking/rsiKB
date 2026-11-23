@@ -1,0 +1,19 @@
+# KBEA 品牌固化配置
+# 发行方 / 二次开发者只需修改本文件与同目录的 logo.png，即可替换界面品牌。
+# 文件名固定：branding.yaml（或 branding.yml），logo 默认 logo.png。
+# 放在 exe 同级的 branding/ 目录下；文件缺失或写坏时程序自动回落到内置默认值。
+
+# 品牌名：侧栏标题、窗口标题前缀、消息框标题
+product-name: 知识库自进化助手
+
+# 版本后缀：窗口标题显示为「品牌名 · 后缀」；留空则标题只有品牌名
+edition: 开源版
+
+# logo 文件名（相对 branding 目录）
+logo-file-name: logo.png
+
+# 侧栏 logo 显示尺寸（像素）
+logo-size: 30
+
+# 一句话简介：显示在设置 → 关于我们；留空则用内置文案
+tagline: ""

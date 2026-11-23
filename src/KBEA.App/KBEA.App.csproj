@@ -30,6 +30,8 @@
     <None Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <!-- 品牌固化配置（branding/branding.yaml）解析 -->
+    <PackageReference Include="YamlDotNet" Version="13.7.1" />
   </ItemGroup>
 
   <!-- Optional single-assembly source run for devices with application-control

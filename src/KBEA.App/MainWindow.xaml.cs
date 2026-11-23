@@ -7,6 +7,8 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using KBEA.App.Branding;
 using KBEA.App.Controls;
 using KBEA.App.Services;
 using KBEA.App.ViewModels;
@@ -51,6 +53,36 @@ public partial class MainWindow : Window
         };
         // 用 PreviewKeyDown 隧道事件拦截文件操作快捷键...
         PreviewKeyDown += MainWindow_PreviewKeyDown;
+        // 品牌固化配置：branding/logo.png 存在则覆盖内置 logo
+        ApplyBrandingLogo();
+    }
+
+    /// <summary>
+    /// 品牌 logo：优先用 branding/ 目录下的图片（发行方替换该文件即可换品牌），
+    /// 没有则保持 XAML 里的内置 Assets/logo.png。
+    /// </summary>
+    private void ApplyBrandingLogo()
+    {
+        var path = BrandingLoader.LogoPath;
+        if (path is null) return;
+        try
+        {
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.UriSource = new Uri(path, UriKind.Absolute);
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.EndInit();
+            image.Freeze();
+            BrandLogo.Source = image;
+            var size = BrandingLoader.Current.LogoSize;
+            BrandLogo.Width = size;
+            BrandLogo.Height = size;
+        }
+        catch (Exception ex)
+        {
+            // 图片坏了就用内置 logo，不影响启动
+            Services.DiagLog.Exception("Branding", ex);
+        }
     }
 
     /// <summary>侧栏切换时，清空 WorkspaceTree 的视觉选中高亮。</summary>

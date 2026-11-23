@@ -8,9 +8,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using KBEA.App.Branding;
+using KBEA.App.Services;
 using KBEA.Core.Models;
 using KBEA.Core.Services;
-using KBEA.App.Services;
 using Microsoft.Win32;
 
 namespace KBEA.App.Views;
@@ -492,7 +493,7 @@ public partial class SettingsWindow : Window
 
         panel.Children.Add(new TextBlock
         {
-            Text = "知识库自进化助手 · 开源版",
+            Text = BrandingLoader.Current.WindowTitle,
             FontSize = 20,
             FontWeight = FontWeights.Bold
         });
@@ -505,7 +506,9 @@ public partial class SettingsWindow : Window
 
         panel.Children.Add(new TextBlock
         {
-            Text = "一个以 Git / rsync 为底座的知识工作台，把本地目录、远程仓库和归档节点串成一张可追溯、可对比的知识图谱。开源核心可独立使用，插件接入后提供智能助手与报表能力。",
+            Text = string.IsNullOrWhiteSpace(BrandingLoader.Current.Tagline)
+                ? "一个以 Git / rsync 为底座的知识工作台，把本地目录、远程仓库和归档节点串成一张可追溯、可对比的知识图谱。开源核心可独立使用，插件接入后提供智能助手与报表能力。"
+                : BrandingLoader.Current.Tagline,
             TextWrapping = TextWrapping.Wrap,
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
             Margin = new Thickness(0, 0, 0, 14)

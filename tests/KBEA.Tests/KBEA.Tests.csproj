@@ -37,6 +37,13 @@
     <!-- rsync 归档已迁入 kbea-plugin-rsync：归档存储实现以源码方式编入以便单测 -->
     <Compile Include="..\..\src\KBEA.Plugin.Rsync\ArchiveStore.cs"
              Link="Core\%(Filename)%(Extension)" />
+    <!-- 品牌固化配置（App 层）：以源码方式编入以便单测 -->
+    <Compile Include="..\..\src\KBEA.App\Branding\*.cs"
+             Link="Branding\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="13.7.1" />
   </ItemGroup>
 
 </Project>

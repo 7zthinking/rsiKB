@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using KBEA.App.Branding;
 using KBEA.App.Services;
 using KBEA.Core.Archive;
 using KBEA.Core.Files;
@@ -204,6 +205,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>侧栏团队树点击共享空间行（我的团队→开空间；加入的团队→开 WebDAV）。</summary>
     public RelayCommand<SharedSpaceItem> OpenTeamShareNodeCommand { get; }
     public string Version => "开源版 v0.3.0";
+
+    /// <summary>品牌名（侧栏标题）——来自 branding/branding.yaml，缺失时用内置默认值。</summary>
+    public string ProductName => BrandingLoader.Current.ProductName;
+
+    /// <summary>窗口标题（品牌名 + 版本后缀）。</summary>
+    public string WindowTitle => BrandingLoader.Current.WindowTitle;
+
     public string PluginSummary => Plugins.Count == 0 ? "智能服务未启用" : $"发现 {Plugins.Count} 个插件";
 
     public WorkspaceNodeViewModel? SelectedNode

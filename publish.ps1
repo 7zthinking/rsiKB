@@ -22,6 +22,14 @@ foreach ($File in @("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md")) {
 Copy-Item (Join-Path $Root "packaging/Portable-Readme.txt") (Join-Path $PortDir "使用说明.txt") -Force
 Write-Host "  => $PortDir/KBEA.exe" -ForegroundColor Green
 
+# ---- 品牌固化配置：branding/ 随两个产物分发（发行方改 branding.yaml + logo.png 即可换品牌）----
+foreach ($Dir in @($PortDir, $LightDir)) {
+    $BrandDir = Join-Path $Dir "branding"
+    New-Item -ItemType Directory -Force -Path $BrandDir | Out-Null
+    Copy-Item (Join-Path $Root "branding/*") $BrandDir -Force
+}
+Write-Host "  => branding/ (branding.yaml + logo.png)" -ForegroundColor Green
+
 # ---- Light: 多文件 self-contained（方便逐个签名 + 开发调试）----
 Write-Host "`n[2/5] Publishing Light (multi-file self-contained)..." -ForegroundColor Cyan
 & $Dotnet publish $Proj `

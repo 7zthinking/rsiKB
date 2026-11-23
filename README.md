@@ -142,6 +142,7 @@ src/KBEA.Diag/          存储层诊断工具
 src/KBEA.Smoke/         UI 冒烟验证（UIA）
 tests/KBEA.Tests/       xUnit 核心与集成测试
 eng/                    构建、验证与证书导出脚本
+branding/               品牌固化配置（branding.yaml + logo.png，改这里即可换品牌）
 docs/                   插件开发指南、签名说明
 ```
 
@@ -177,6 +178,30 @@ rsync 留档已移出核心，成为独立插件 `kbea-plugin-rsync`（源码在
 并排除 `.git/`、`.7z/index/` 和临时文件。
 
 插件的留档历史存放在各挂载文件夹的 `.7z/archive.db`（插件自治数据库，不进宿主的 `meta.db`）；插件配置存放在 `%AppData%\KBEA\plugins\kbea-plugin-rsync\settings.json`。
+
+## 换品牌（branding）
+
+程序目录下的 `branding/` 是固化品牌配置目录，发行方或二次开发者**只需替换文件内容，不用改代码**：
+
+```text
+branding/
+├─ branding.yaml   # 品牌文案（固定文件名）
+└─ logo.png        # 侧栏 logo（文件名可在 yaml 里改）
+```
+
+`branding.yaml` 支持的字段：
+
+| 字段 | 说明 |
+|---|---|
+| `product-name` | 品牌名：侧栏标题、窗口标题前缀、消息框标题 |
+| `edition` | 版本后缀：窗口标题显示为「品牌名 · 后缀」，留空则只显示品牌名 |
+| `logo-file-name` | logo 文件名（相对 `branding/` 目录） |
+| `logo-size` | 侧栏 logo 显示尺寸（像素） |
+| `tagline` | 一句话简介：显示在设置 → 关于我们 |
+
+改动后重启程序生效。目录或文件缺失、YAML 写坏时程序自动回落到内置默认值，不会启动失败。
+
+> ⚠️ Windows 任务栏与资源管理器里的 exe 图标来自编译期的 `app.ico`，运行时无法替换 —— 需要换图标请改 `src/KBEA.App/Assets/app.ico` 后重新构建。
 
 ## 当前边界
 

@@ -17,7 +17,7 @@ public interface IDialogService
     void SetDirectories(List<DirectoryDefinition> directories);
     string? Prompt(string title, string label, string defaultValue = "");
     string? SelectFolder(string title);
-    void Info(string message, string title = "知识库自进化助手");
+    void Info(string message, string title = "");
     bool Confirm(string message, string title = "请确认");
     bool ShowSettings(AppConfiguration configuration);
     SpaceDialogResult? ShowNewSpace(Guid? preselectDirectoryId = null);

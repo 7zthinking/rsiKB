@@ -1,4 +1,5 @@
 using System.Windows;
+using KBEA.App.Branding;
 using KBEA.App.Views;
 using KBEA.Core.Archive;
 using KBEA.Core.Git;
@@ -28,9 +29,14 @@ public sealed class DialogService : IDialogService
         return dialog.ShowDialog(Application.Current.MainWindow) == true ? dialog.FolderName : null;
     }
 
-    public void Info(string message, string title = "知识库自进化助手") => MessageBox.Show(Application.Current.MainWindow, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+    public void Info(string message, string title = "") => MessageBox.Show(Application.Current.MainWindow, message, ResolveTitle(title), MessageBoxButton.OK, MessageBoxImage.Information);
 
-    public bool Confirm(string message, string title = "请确认") => MessageBox.Show(Application.Current.MainWindow, message, title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+    public bool Confirm(string message, string title = "请确认") => MessageBox.Show(Application.Current.MainWindow, message, ResolveTitle(title), MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+
+    /// <summary>消息框标题：调用方未指定时用品牌名（branding/branding.yaml）。</summary>
+    private static string ResolveTitle(string title) => string.IsNullOrWhiteSpace(title)
+        ? BrandingLoader.Current.ProductName
+        : title;
 
     public bool ShowSettings(AppConfiguration configuration)
     {

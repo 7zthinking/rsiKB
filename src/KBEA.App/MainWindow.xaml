@@ -6,7 +6,7 @@
         xmlns:toolbar="clr-namespace:KBEA.App.Controls"
         xmlns:core="clr-namespace:KBEA.Core.Plugins;assembly=KBEA.Core"
         xmlns:helpers="clr-namespace:KBEA.App.Helpers"
-        Title="知识库自进化助手 · 开源版" Width="1440" Height="900" MinHeight="420"
+        Title="{Binding WindowTitle}" Width="1440" Height="900" MinHeight="420"
         WindowStartupLocation="CenterScreen" WindowState="Maximized" WindowStyle="None"
         Background="Transparent" AllowsTransparency="False">
     <WindowChrome.WindowChrome>
@@ -27,8 +27,8 @@
         <Grid Background="{DynamicResource SidebarBackground}">
             <Grid.ColumnDefinitions><ColumnDefinition Width="276"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Margin="14,0,0,0">
-                <Image Source="Assets/logo.png" Width="30" Height="30" Stretch="Uniform" />
-                <TextBlock Margin="9,0,0,0" Text="知识库自进化助手" FontSize="15" FontWeight="SemiBold" />
+                <Image x:Name="BrandLogo" Source="Assets/logo.png" Width="30" Height="30" Stretch="Uniform" />
+                <TextBlock Margin="9,0,0,0" Text="{Binding ProductName}" FontSize="15" FontWeight="SemiBold" />
                 <TextBlock Margin="7,0,0,0" Text="{Binding Version}" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}" />
             </StackPanel>
             <DockPanel Grid.Column="1" VerticalAlignment="Bottom" LastChildFill="True">
