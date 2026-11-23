@@ -5,7 +5,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Automation;
 
-var exePath = args.Length > 0 ? args[0] : @"C:\Users\qizic\Desktop\Projects\rsiKB\artifacts\KBEA-Light\KBEA.exe";
+var exePath = args.Length > 0
+    ? args[0]
+    : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "artifacts", "KBEA-Light", "KBEA.exe");
 var configPath = Path.Combine(Path.GetTempPath(), "kbea-smoke.json");
 
 // 预置一个指向测试空间的配置，确保工具栏与检索视图可见

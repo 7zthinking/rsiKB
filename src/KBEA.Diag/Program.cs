@@ -52,13 +52,13 @@ if (mode == "jobs")
     return;
 }
 
+var repoRoot = AppContext.BaseDirectory;
+while (!string.IsNullOrEmpty(repoRoot) && !Directory.Exists(Path.Combine(repoRoot, "KBEA.sln")))
+    repoRoot = Path.GetDirectoryName(repoRoot);
+
 var targets = args.Length > 1
     ? args.Skip(1).ToArray()
-    : new[]
-    {
-        @"C:\Users\qizic\Desktop\Projects\rsiKB",
-        @"C:\Users\qizic\Desktop\Projects\AssetMarket"
-    };
+    : repoRoot is null ? [] : [repoRoot];
 
 foreach (var target in targets)
 {

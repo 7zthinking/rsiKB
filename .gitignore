@@ -55,3 +55,9 @@ Thumbs.db
 .7z/derived/
 .7z/index/
 .7z/assistant/
+
+# Trae IDE 本地配置与技能（含本机证书路径等个人信息）
+.trae/
+
+# 第三方 skill 工具（本地使用，不进本仓库）
+ui-ux-pro-max-skill/

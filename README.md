@@ -29,7 +29,9 @@ This project uses SignPath Foundation for Windows code signing.
 
 签名服务处于申请与接入阶段；接入完成前，开发构建仍为未签名文件。如果企业设备的 Windows 应用控制或 Smart App Control 阻止新程序，请按组织流程审核放行，不要关闭安全功能。详见 `docs/SIGNPATH.md`。
 
-**自建签名链（过渡方案）**：当前构建由 `CN=7zThinking`（自建根 CA）签名。绿色版 ZIP 的 `certs\` 目录内含根证书公钥 `7zThinking-Root-CA.cer` 与一键导入脚本 `import-signing-cert.bat`（仅导入公钥，不含私钥）。受信后 UAC/企业应用控制中发布者显示为已验证。注意：导入证书不会消除 SmartScreen 的"未知发布者"下载信誉提示；面向公众分发仍以接入 SignPath（公共信任链）为目标。
+**自建签名链（过渡方案）**：当前构建由项目自建根 CA 签名。绿色版 ZIP 的 `certs\` 目录内含根证书公钥 `KBEA-Root-CA.cer` 与一键导入脚本 `import-signing-cert.bat`（仅导入公钥，不含私钥）。受信后 UAC/企业应用控制中发布者显示为已验证。注意：导入证书不会消除 SmartScreen 的"未知发布者"下载信誉提示；面向公众分发仍以接入 SignPath（公共信任链）为目标。
+
+> 自签名流程：`eng/export-sign-root.ps1` 导出根证书公钥（永不导出私钥），`sign.ps1` 签名。证书指纹通过环境变量 `KBEA_SIGN_THUMBPRINT` 传入，仓库中不含任何证书信息。
 
 ### 源码开发
 

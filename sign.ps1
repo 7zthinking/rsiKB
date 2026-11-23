@@ -1,5 +1,5 @@
 # ============================================================
-#  KBEA batch code signer (CN=7zThinking) — INCREMENTAL
+#  KBEA batch code signer — INCREMENTAL
 #  Three tiers to avoid re-signing unchanged files:
 #    1. Already has a valid signature  -> skip
 #    2. Content matches signed cache   -> copy cached signed file back (no signtool)
@@ -11,8 +11,30 @@
 $ErrorActionPreference = 'Continue'
 $ProgressPreference    = 'SilentlyContinue'
 
-$SIGNTOOL = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe'
-$THUMB    = '1583576BBF01ADB342EDC1CB9BCA018E7FC71381'
+# Locate signtool: KBEA_SIGNTOOL env override, then the newest Windows Kits install.
+function Resolve-SignTool {
+    if ($env:KBEA_SIGNTOOL -and (Test-Path $env:KBEA_SIGNTOOL)) { return $env:KBEA_SIGNTOOL }
+    $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+    if (Test-Path $kits) {
+        $candidates = Get-ChildItem $kits -Directory -ErrorAction SilentlyContinue |
+            Sort-Object { [version]($_.Name -replace '[^0-9.]', '') } -Descending
+        foreach ($c in $candidates) {
+            $p = Join-Path $c.FullName 'x64\signtool.exe'
+            if (Test-Path $p) { return $p }
+        }
+    }
+    $onPath = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    return $null
+}
+
+$SIGNTOOL = Resolve-SignTool
+$THUMB    = if ($env:KBEA_SIGN_THUMBPRINT) { $env:KBEA_SIGN_THUMBPRINT }
+            else { (Read-Host -Prompt 'Code-signing certificate thumbprint (or set KBEA_SIGN_THUMBPRINT)') }
+if ([string]::IsNullOrWhiteSpace($THUMB)) {
+    Write-Host "[ERROR] no signing certificate thumbprint provided." -ForegroundColor Red
+    exit 1
+}
 $ARTIFACTS = Join-Path $PSScriptRoot 'artifacts'
 $CACHE_DIR = Join-Path $ARTIFACTS '.sign-cache'
 
@@ -38,7 +60,7 @@ Write-Host ""
 Write-Host "=== KBEA Incremental Signer ===" -ForegroundColor Cyan
 Write-Host "Root     : $ARTIFACTS"
 Write-Host "Cache    : $CACHE_DIR"
-Write-Host "Signer   : CN=7zThinking  (thumbprint $THUMB)"
+Write-Host "Signer   : thumbprint $THUMB"
 Write-Host "TS hosts : $($TS_SERVERS -join ', ')"
 Write-Host ""
 
