@@ -34,6 +34,9 @@
              Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\..\src\KBEA.Plugin.Git\GitService.cs;..\..\src\KBEA.Plugin.Git\GitCli.cs"
              Link="Core\%(Filename)%(Extension)" />
+    <!-- rsync 归档已迁入 kbea-plugin-rsync：归档存储实现以源码方式编入以便单测 -->
+    <Compile Include="..\..\src\KBEA.Plugin.Rsync\ArchiveStore.cs"
+             Link="Core\%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

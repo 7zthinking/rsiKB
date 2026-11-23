@@ -25,7 +25,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly FileBrowserService _files;
     // GitService 已迁入 kbea-plugin-git（P2）：实现经 GitOperationsProvider 解析，插件未加载时为 null → Git 功能优雅降级
     private static IGitOperations? Git => GitOperationsProvider.Instance;
-    private readonly ArchiveService _archive;
+    // rsync 归档已迁入 kbea-plugin-rsync：实现经 ArchiveOperationsProvider 解析，插件未加载时为 null → 归档功能优雅降级
+    private static IArchiveOperations? Archive => ArchiveOperationsProvider.Instance;
     private readonly PluginCatalog _plugins;
     private readonly IDialogService _dialogs;
     private readonly ChangeMonitor _monitor = new();
@@ -45,11 +46,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly TeamShareService _team;
     private PluginHostService? _pluginHost;
 
-    public MainViewModel(WorkspaceStore store, FileBrowserService files, ArchiveService archive, PluginCatalog plugins, IDialogService dialogs, WorkerClient worker)
+    public MainViewModel(WorkspaceStore store, FileBrowserService files, PluginCatalog plugins, IDialogService dialogs, WorkerClient worker)
     {
         _store = store;
         _files = files;
-        _archive = archive;
         _plugins = plugins;
         _dialogs = dialogs;
         _worker = worker;
@@ -1362,20 +1362,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 Address = space.RemoteUrl,
                 LocalPath = space.Path
             });
-        if (IsRemoteArchiveAddress(_configuration.ArchiveRoot))
-            RememberRemoteLocation(new RemoteLocationDefinition
-            {
-                Name = "rsync 归档目录",
-                Kind = RemoteLocationKind.Rsync,
-                Address = _configuration.ArchiveRoot,
-                LocalPath = CreateCachePath()
-            });
         if (_configuration.RemoteLocations.Count != before) SaveConfiguration();
     }
-
-    private static bool IsRemoteArchiveAddress(string path) => !string.IsNullOrWhiteSpace(path)
-        && (path.StartsWith(@"\\", StringComparison.Ordinal) || path.Contains("://", StringComparison.Ordinal)
-            || (path.Contains(':') && !Path.IsPathRooted(path)));
 
     private static string CreateCachePath() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KBEA", "RemoteCache", Guid.NewGuid().ToString("N"));
@@ -1595,6 +1583,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task ArchiveAsync()
     {
+        var archive = Archive;
+        if (archive is null)
+        {
+            _dialogs.Info("rsync 归档插件未加载，请在设置 → 插件管理中启用「rsync 归档插件」。");
+            return;
+        }
         if (SelectedTab is not { WorkspaceSpace: { } space } tab) return;
         var note = _dialogs.Prompt("标记关键节点", "节点备注", $"关键节点 {DateTime.Now:yyyy-MM-dd HH:mm}");
         if (note is null) return;
@@ -1603,7 +1597,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         try
         {
             var progress = new Progress<string>(message => GlobalStatus = $"{tab.Title}：{message}");
-            var record = await Task.Run(() => _archive.CreateAsync(space, _configuration, note, progress));
+            var record = await Task.Run(() => archive.CreateAsync(space.Name, space.Path, note, progress));
             GlobalStatus = $"{tab.Title}：关键节点 {record.NodeName} 已归档。";
         }
         catch (Exception ex) { GlobalStatus = "归档失败"; _dialogs.Info($"归档失败：{ex.Message}"); }
@@ -1612,7 +1606,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void ShowArchiveHistory()
     {
-        if (SelectedTab is { WorkspaceSpace: { } space } tab) _dialogs.ShowArchives(_archive.GetHistory(space.Path), $"{tab.Title} · 关键节点");
+        var archive = Archive;
+        if (archive is null)
+        {
+            _dialogs.Info("rsync 归档插件未加载，请在设置 → 插件管理中启用「rsync 归档插件」。");
+            return;
+        }
+        if (SelectedTab is { WorkspaceSpace: { } space } tab)
+            _dialogs.ShowArchives(archive.GetHistory(space.Path), $"{tab.Title} · 关键节点");
     }
 
     private void ShowSettings()

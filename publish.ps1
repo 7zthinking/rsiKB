@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Dotnet = Join-Path $Root ".dotnet/dotnet.exe"
 if (-not (Test-Path $Dotnet)) { $Dotnet = "dotnet" }
@@ -51,7 +51,7 @@ Write-Host "  => $LightDir/KBEA.Worker.exe" -ForegroundColor Green
 # ---- Git plugin: P2 Git 插件拷到两个 artifacts 的 plugins/kbea-plugin-git ----
 # 宿主契约（KBEA.Core.dll）不能拷（与发布脚本顶部 Sample 插件同一原则）；
 # 但 LibGit2Sharp 托管 + git2 本机库是插件私有依赖，必须随插件目录分发。
-Write-Host "`n[5/5] Copying git plugin..." -ForegroundColor Cyan
+Write-Host "`n[4/7] Copying git plugin..." -ForegroundColor Cyan
 & $Dotnet build (Join-Path $Root "src/KBEA.Plugin.Git/KBEA.Plugin.Git.csproj") --configuration Release
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $GitOut = Join-Path $Root "src/KBEA.Plugin.Git/bin/Release/net8.0"
@@ -71,7 +71,7 @@ Write-Host "  => plugins/kbea-plugin-git" -ForegroundColor Green
 
 # ---- Wiki plugin: P3 知识 WIKI 插件拷到两个 artifacts 的 plugins/kbea-plugin-wiki ----
 # 插件只带自己的 plugin.json + 入口 DLL（无第三方依赖）：宿主契约（KBEA.Core）由宿主进程提供，不能拷。
-Write-Host "`n[6/6] Copying wiki plugin..." -ForegroundColor Cyan
+Write-Host "`n[5/7] Copying wiki plugin..." -ForegroundColor Cyan
 & $Dotnet build (Join-Path $Root "src/KBEA.Plugin.Wiki/KBEA.Plugin.Wiki.csproj") --configuration Release
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $WikiOut = Join-Path $Root "src/KBEA.Plugin.Wiki/bin/Release/net8.0"
@@ -86,7 +86,7 @@ Write-Host "  => plugins/kbea-plugin-wiki" -ForegroundColor Green
 # ---- Sample plugin: 打样插件（P1 验收用）拷到两个 artifacts 的 plugins/kbea-plugin-sample ----
 # 插件只带自己的 plugin.json + 入口 DLL：宿主契约（KBEA.Core）由宿主进程提供，
 # 不能拷插件目录里的 KBEA.Core.dll 副本，否则 ALC 内会加载出第二份类型导致转换失败。
-Write-Host "`n[4/5] Copying sample plugin..." -ForegroundColor Cyan
+Write-Host "`n[6/7] Copying sample plugin..." -ForegroundColor Cyan
 & $Dotnet build (Join-Path $Root "src/KBEA.Plugin.Sample/KBEA.Plugin.Sample.csproj") --configuration Release
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $SampleOut = Join-Path $Root "src/KBEA.Plugin.Sample/bin/Release/net8.0"
@@ -98,9 +98,39 @@ foreach ($Dir in @($PortDir, $LightDir)) {
 }
 Write-Host "  => plugins/kbea-plugin-sample" -ForegroundColor Green
 
+# ---- Rsync plugin: 归档插件拷到两个 artifacts 的 plugins/kbea-plugin-rsync ----
+# 插件带自己的 plugin.json + 入口 DLL；SQLite 运行时由宿主提供，但插件 ALC 从插件目录解析依赖，
+# 故把 Microsoft.Data.Sqlite + SQLitePCLRaw 运行时一并拷入插件目录（随插件自持）。
+Write-Host "`n[7/7] Copying rsync plugin..." -ForegroundColor Cyan
+& $Dotnet build (Join-Path $Root "src/KBEA.Plugin.Rsync/KBEA.Plugin.Rsync.csproj") --configuration Release
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$RsyncOut = Join-Path $Root "src/KBEA.Plugin.Rsync/bin/Release/net8.0"
+foreach ($Dir in @($PortDir, $LightDir)) {
+    $PluginDir = Join-Path $Dir "plugins/kbea-plugin-rsync"
+    New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
+    Copy-Item (Join-Path $RsyncOut "plugin.json") $PluginDir -Force
+    Copy-Item (Join-Path $RsyncOut "KBEA.Plugin.Rsync.dll") $PluginDir -Force
+    # 插件直接使用 Microsoft.Data.Sqlite（插件自治库 .7z/archive.db），故 SQLite 运行时随插件自持：
+    # ALC 从插件目录解析托管依赖，原生库放插件目录 + runtimes/win-x64/native 兜底。
+    foreach ($Dll in @(
+        "Microsoft.Data.Sqlite.dll",
+        "SQLitePCLRaw.core.dll",
+        "SQLitePCLRaw.batteries_v2.dll",
+        "SQLitePCLRaw.provider.e_sqlite3.dll")) {
+        Copy-Item (Join-Path $RsyncOut $Dll) $PluginDir -Force -ErrorAction SilentlyContinue
+    }
+    # SQLite 原生库：runtimes/win-x64/native + 扁平副本兜底
+    $NativeDir = Join-Path $PluginDir "runtimes/win-x64/native"
+    New-Item -ItemType Directory -Force -Path $NativeDir | Out-Null
+    Copy-Item (Join-Path $RsyncOut "runtimes/win-x64/native/*.dll") $NativeDir -Force -ErrorAction SilentlyContinue
+    Copy-Item (Join-Path $RsyncOut "runtimes/win-x64/native/*.dll") $PluginDir -Force -ErrorAction SilentlyContinue
+}
+Write-Host "  => plugins/kbea-plugin-rsync" -ForegroundColor Green
+
 # ---- 清理旧的 framework-dependent 遗留 ----
 Write-Host "`nDone." -ForegroundColor Cyan
 Write-Host "Portable: $PortDir ($([math]::Round((Get-Item "$PortDir\KBEA.exe").Length/1MB, 1)) MB single-file)"
 Write-Host "Light   : $LightDir ($([math]::Round((Get-ChildItem $LightDir -Recurse -File | Measure-Object Length -Sum).Sum/1MB, 1)) MB multi-file)"
 Write-Host ""
 Write-Host "Next: run sign.bat to code-sign both artifacts."
+

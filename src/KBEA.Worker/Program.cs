@@ -193,6 +193,7 @@ internal sealed class WorkerPluginHost : IPluginHostContext
     public IUiSurface Ui { get; } = new NoopUiSurface();
     public KBEA.Core.Plugins.IGitUiCommands? GitUi => null; // Worker 无 UI，Git 插件在 Worker 内不注册按钮
     public KBEA.Core.Plugins.IWikiUiCommands? WikiUi => null; // Worker 无 UI，WIKI 插件在 Worker 内只注册 Ingest 实现
+    public KBEA.Core.Plugins.IArchiveUiCommands? ArchiveUi => null; // Worker 无 UI，归档插件在 Worker 内不注册按钮
 
     private sealed class EmptySidebarState : ISidebarState
     {

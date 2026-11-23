@@ -49,6 +49,10 @@ my-plugin/
 >
 > `KBEA.Core` 自身带 `DiffPlex`、`Microsoft.Data.Sqlite`、`Makaretu.Dns.Multicast` 依赖，引用后会随插件输出。宿主加载插件时 `KBEA.Core` 由宿主提供、不重复加载，因此这些依赖不会造成版本冲突。
 
+> **依赖分发规则**：插件目录里只放「插件自己直接使用」的依赖 + 入口 DLL，**不要**放 `KBEA.Core.dll` 副本。
+> 插件 ALC 会优先从插件目录解析依赖，所以直接使用的第三方库必须随插件目录分发（例：`kbea-plugin-git` 带 `LibGit2Sharp.dll`，`kbea-plugin-rsync` 带 `Microsoft.Data.Sqlite.dll` + `SQLitePCLRaw.*.dll`）。
+> 原生库按「插件目录 + `runtimes/win-x64/native/`」两处都放一份兜底。
+
 **plugin.json**
 
 ```json
@@ -177,6 +181,7 @@ public interface IPluginHostContext
 
     IGitUiCommands? GitUi { get; }           // 宿主 Git 命令（Worker 内为 null）
     IWikiUiCommands? WikiUi { get; }         // 宿主 WIKI 命令（Worker 内为 null）
+    IArchiveUiCommands? ArchiveUi { get; }   // 宿主归档命令（Worker 内为 null）
 }
 ```
 
@@ -501,6 +506,12 @@ public interface IWikiUiCommands
 {
     ICommand OpenMetadataConfigCommand { get; } // 打开元数据构建面板
 }
+
+public interface IArchiveUiCommands
+{
+    ICommand ArchiveCommand { get; }            // 标记关键节点（归档）
+    ICommand ArchiveHistoryCommand { get; }     // 查看留档历史
+}
 ```
 
 用法：
@@ -564,7 +575,7 @@ public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
 1. **图标只从 `ToolbarIcon` 枚举取**，禁止 emoji/字符图标
 2. **`Label` 2-4 字**，功能用 `Tooltip` 写完整句
 3. **不感知排布**——只声明分组与按钮内容
-4. **`GitUi`/`WikiUi` 必须判空**（Worker 环境）
+4. **`GitUi`/`WikiUi`/`ArchiveUi` 必须判空**（Worker 环境）
 5. **插件设置自行持久化**（v1 契约无宿主配置存储）
 6. **异常自己兜住**——宿主会吞掉你的异常并写日志，但用户看不到效果
 
@@ -576,7 +587,7 @@ public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
 | 主菜单项 / 右键菜单注册 | 无接口 |
 | 左侧栏自定义节点 | 无接口 |
 | 运行时热重载（卸载插件） | 不支持，需重启 |
-| 直接访问 SQLite | 未开放，走 `IMetadataWorkbench` |
+| 直接访问宿主的 SQLite | 未开放，走 `IMetadataWorkbench`；插件可自建独立数据库 |
 | 团队共享（TeamShare） | 未开放 |
 | 插件权限 / 信任模型 | 暂无（插件可执行任意代码与文件 IO） |
 
@@ -597,12 +608,12 @@ public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
 | 在文件详情里加字段 | `IMetadataFieldContribution` | `fields` |
 | 接管某种文件的预览 | `IPreviewContribution` | `preview` |
 | 参与文件整理的元数据抽取 | `IMetadataPlugin` / `ITypeMetadataPlugin` | — |
-| 替换宿主的某类操作（如 Git） | 实现对应 `IXxxOperations` + 静态 `Provider.Register` | `git` / `wiki` |
+| 替换宿主的某类操作（如 Git、归档） | 实现对应 `IXxxOperations` + 静态 `Provider.Register` | `git` / `wiki` / `archive` |
 | 读宿主当前浏览位置 | `context.Browser.Current` | — |
 | 读宿主当前侧栏状态 | `context.Sidebar.Current` | — |
 | 读/写编目元数据 | `context.Metadata` | — |
 | 在状态栏显示提示 | `context.Ui.SetGlobalStatus()` | — |
-| 挂宿主已有命令 | `context.GitUi` / `context.WikiUi` | — |
+| 挂宿主已有命令 | `context.GitUi` / `context.WikiUi` / `context.ArchiveUi` | — |
 
 ---
 
@@ -635,8 +646,10 @@ public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
 | 路径 | 内容 |
 |---|---|
 | `src/KBEA.Core/Plugins/PluginContracts.cs` | 全部契约定义（权威来源） |
+| `src/KBEA.Core/Archive/ArchiveContracts.cs` | 归档契约（`IArchiveOperations` + `ArchiveOperationsProvider`） |
 | `src/KBEA.Plugin.Sample/` | 样例插件（覆盖全部扩展点） |
 | `src/KBEA.Plugin.Git/` | 完整功能插件（服务替换 + 工具栏） |
 | `src/KBEA.Plugin.Wiki/` | 最小 UI 入口范例 |
+| `src/KBEA.Plugin.Rsync/` | 归档插件范例（自治数据库 + 自有配置 + 服务替换） |
 | `src/KBEA.Core/Plugins/PluginLoader.cs` | ALC 加载与校验实现 |
 | `src/KBEA.App/Services/PluginHostService.cs` | 宿主侧接入实现 |

@@ -9,8 +9,6 @@ public sealed class AppConfiguration
     public string AuthorName { get; set; } = Environment.UserName;
     public string AuthorEmail { get; set; } = $"{Environment.UserName}@localhost";
     public string Theme { get; set; } = "Light";
-    public string RsyncExecutable { get; set; } = "tools/rsync/rsync.exe";
-    public string ArchiveRoot { get; set; } = string.Empty;
     public bool AutoDetect { get; set; } = true;
     public List<LlmEndpointConfig> LlmEndpoints { get; set; } = [];
     public List<string> FavoriteFolders { get; set; } = [];
@@ -184,15 +182,6 @@ public sealed record HeadFileContent(bool Found, bool IsBinary, string Text)
 {
     public static HeadFileContent Missing { get; } = new(false, false, string.Empty);
 }
-
-public sealed record ArchiveRecord(
-    string Id,
-    string SpaceName,
-    string NodeName,
-    string Destination,
-    string Note,
-    DateTimeOffset CreatedAt,
-    string Status);
 
 public sealed record SyncLog(DateTimeOffset Time, string Operation, string Status, string Message);
 

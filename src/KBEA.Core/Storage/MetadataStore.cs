@@ -65,15 +65,6 @@ public sealed class MetadataStore
                 LastWriteUtc TEXT NOT NULL
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS file_fts USING fts5(RelativePath UNINDEXED, Name, Extension);
-            CREATE TABLE IF NOT EXISTS archive_nodes (
-                Id TEXT PRIMARY KEY,
-                SpaceName TEXT NOT NULL,
-                NodeName TEXT NOT NULL,
-                Destination TEXT NOT NULL,
-                Note TEXT NOT NULL,
-                CreatedAt TEXT NOT NULL,
-                Status TEXT NOT NULL
-            );
             CREATE TABLE IF NOT EXISTS sync_logs (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 Time TEXT NOT NULL,
@@ -244,33 +235,6 @@ public sealed class MetadataStore
         var snapshot = new CatalogSnapshot(directories, GetLinks(space.Id));
         File.WriteAllText(path, JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true }));
         return path;
-    }
-
-    public void RecordArchive(ArchiveRecord record)
-    {
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO archive_nodes (Id,SpaceName,NodeName,Destination,Note,CreatedAt,Status) VALUES ($id,$space,$node,$destination,$note,$created,$status);";
-        command.Parameters.AddWithValue("$id", record.Id);
-        command.Parameters.AddWithValue("$space", record.SpaceName);
-        command.Parameters.AddWithValue("$node", record.NodeName);
-        command.Parameters.AddWithValue("$destination", record.Destination);
-        command.Parameters.AddWithValue("$note", record.Note);
-        command.Parameters.AddWithValue("$created", record.CreatedAt.ToString("O"));
-        command.Parameters.AddWithValue("$status", record.Status);
-        command.ExecuteNonQuery();
-    }
-
-    public IReadOnlyList<ArchiveRecord> GetArchives(int limit = 50)
-    {
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id,SpaceName,NodeName,Destination,Note,CreatedAt,Status FROM archive_nodes ORDER BY CreatedAt DESC LIMIT $limit;";
-        command.Parameters.AddWithValue("$limit", limit);
-        using var reader = command.ExecuteReader();
-        var result = new List<ArchiveRecord>();
-        while (reader.Read()) result.Add(new ArchiveRecord(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), DateTimeOffset.Parse(reader.GetString(5)), reader.GetString(6)));
-        return result;
     }
 
     public void RecordSync(string operation, string status, string message)

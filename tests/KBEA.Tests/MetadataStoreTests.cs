@@ -60,7 +60,7 @@ public sealed class MetadataStoreTests
     }
 
     [Fact]
-    public void SnapshotAndArchive_AreStoredWithMountedFolder()
+    public void CatalogSnapshot_IsStoredWithMountedFolder()
     {
         using var directory = new TestDirectory();
         var mount = directory.SubDirectory("mount");
@@ -73,9 +73,5 @@ public sealed class MetadataStoreTests
         using var json = JsonDocument.Parse(File.ReadAllText(snapshot));
         Assert.True(json.RootElement.TryGetProperty("Directories", out _));
         Assert.True(json.RootElement.TryGetProperty("Links", out _));
-
-        var record = new ArchiveRecord("1", "项目A", "20261030-180000", "D:/archive", "验收", DateTimeOffset.Now, "完成");
-        store.RecordArchive(record);
-        Assert.Equal("验收", Assert.Single(store.GetArchives()).Note);
     }
 }

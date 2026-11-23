@@ -33,6 +33,7 @@ public sealed class PluginHostService : IPluginHostContext, IDisposable
         _ui = new UiSurface(this);
         GitUi = new GitUiCommands(main);
         WikiUi = new WikiUiCommands(main);
+        ArchiveUi = new ArchiveUiCommands(main);
     }
 
     public string HostVersion => HostVersionValue;
@@ -42,6 +43,7 @@ public sealed class PluginHostService : IPluginHostContext, IDisposable
     public IUiSurface Ui => _ui;
     public IGitUiCommands? GitUi { get; }
     public IWikiUiCommands? WikiUi { get; }
+    public IArchiveUiCommands? ArchiveUi { get; }
 
     /// <summary>发现并加载插件；成功加载的清单去重后登记到 MainViewModel.Plugins，UI 贡献随即灌入。</summary>
     public void Load()
@@ -206,6 +208,13 @@ public sealed class PluginHostService : IPluginHostContext, IDisposable
     private sealed class WikiUiCommands(MainViewModel main) : IWikiUiCommands
     {
         public ICommand OpenMetadataConfigCommand => main.ShowMetadataConfigCommand;
+    }
+
+    /// <summary>宿主归档命令面：转发 MainViewModel 的关键节点与留档历史命令（rsync 实现由插件提供）。</summary>
+    private sealed class ArchiveUiCommands(MainViewModel main) : IArchiveUiCommands
+    {
+        public ICommand ArchiveCommand => main.ArchiveCommand;
+        public ICommand ArchiveHistoryCommand => main.ArchiveHistoryCommand;
     }
 
     /// <summary>宿主 Git 命令面：直接转发 MainViewModel 上的命令（对话框/配置写回逻辑留在宿主）。</summary>

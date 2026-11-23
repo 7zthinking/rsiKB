@@ -26,10 +26,6 @@ public partial class SettingsWindow : Window
     private readonly Dictionary<string, FrameworkElement> _panels = new();
     private readonly Action? _onPluginSave;
 
-    // Browse 按钮需要直接访问的 TextBox 字段
-    private TextBox _rsyncBox = null!;
-    private TextBox _archiveBox = null!;
-
     public ObservableCollection<LlmEndpointConfig> LlmEndpoints { get; } = new();
 
     private const string CurrentVersion = "v0.3.0";
@@ -179,39 +175,6 @@ public partial class SettingsWindow : Window
                 Source = dc
             });
         panel.Children.Add(MakeRow("邮箱", emailBox));
-
-        _rsyncBox = new TextBox();
-        _rsyncBox.SetBinding(TextBox.TextProperty,
-            new System.Windows.Data.Binding(nameof(AppConfiguration.RsyncExecutable))
-            {
-                UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged,
-                Source = dc
-            });
-        panel.Children.Add(MakeBrowseRow("rsync.exe", _rsyncBox, BrowseRsync_Click));
-
-        _archiveBox = new TextBox();
-        _archiveBox.SetBinding(TextBox.TextProperty,
-            new System.Windows.Data.Binding(nameof(AppConfiguration.ArchiveRoot))
-            {
-                UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged,
-                Source = dc
-            });
-        panel.Children.Add(MakeBrowseRow("归档根目录", _archiveBox, BrowseArchive_Click));
-
-        var tip = new Border
-        {
-            Background = (System.Windows.Media.Brush)FindResource("AccentSoftBrush"),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 10, 0, 0)
-        };
-        tip.Child = new TextBlock
-        {
-            Text = "默认查找程序目录下的 tools/rsync/rsync.exe。绿色发布时请放入便携版。",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
-        };
-        panel.Children.Add(tip);
 
         return panel;
     }
@@ -935,8 +898,6 @@ public partial class SettingsWindow : Window
         _configuration.MachineName = edited.MachineName;
         _configuration.AuthorName = edited.AuthorName;
         _configuration.AuthorEmail = edited.AuthorEmail;
-        _configuration.RsyncExecutable = edited.RsyncExecutable;
-        _configuration.ArchiveRoot = edited.ArchiveRoot;
         _configuration.AutoDetect = edited.AutoDetect;
         _configuration.Theme = edited.Theme;
         _configuration.LlmEndpoints = [.. LlmEndpoints];
@@ -966,17 +927,5 @@ public partial class SettingsWindow : Window
             catch (Exception ex) { errors.Add($"{status.Name}：{ex.Message}"); }
         }
         return errors;
-    }
-
-    private void BrowseRsync_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog { Filter = "rsync.exe|rsync.exe|可执行文件|*.exe" };
-        if (dialog.ShowDialog(this) == true) _rsyncBox.Text = dialog.FileName;
-    }
-
-    private void BrowseArchive_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFolderDialog { Title = "选择归档根目录" };
-        if (dialog.ShowDialog(this) == true) _archiveBox.Text = dialog.FolderName;
     }
 }

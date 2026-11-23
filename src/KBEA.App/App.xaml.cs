@@ -39,7 +39,7 @@ public partial class App : Application
         services.AddSingleton(new WorkspaceStore(configPath));
         services.AddSingleton<FileBrowserService>();
         // GitService 已随 P2 迁入 kbea-plugin-git：宿主经 GitOperationsProvider.Instance 解析 IGitOperations
-        services.AddSingleton<ArchiveService>();
+        // rsync 归档已随本次迁入 kbea-plugin-rsync：宿主经 ArchiveOperationsProvider.Instance 解析 IArchiveOperations
         services.AddSingleton<PluginCatalog>();
         services.AddSingleton<WorkerClient>();
         services.AddSingleton<IDialogService, DialogService>();

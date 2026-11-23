@@ -142,6 +142,7 @@ public sealed class PluginLoaderTests
         public IUiSurface Ui { get; } = new NoopUiSurface();
         public IGitUiCommands? GitUi => null;
         public IWikiUiCommands? WikiUi => null;
+        public IArchiveUiCommands? ArchiveUi => null;
 
         private sealed class EmptySidebarState : ISidebarState
         {

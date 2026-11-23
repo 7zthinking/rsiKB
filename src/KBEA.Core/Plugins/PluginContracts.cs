@@ -260,6 +260,23 @@ public interface IPluginHostContext
     /// WIKI 插件用它把「知识WIKI」按钮挂上宿主命令，元数据面板窗口留在宿主（docs/plugin-architecture.md §5）。
     /// </summary>
     IWikiUiCommands? WikiUi { get; }
+
+    /// <summary>
+    /// 宿主归档命令面（App 内有效；Worker 内为 null）。
+    /// rsync 归档插件用它把「关键节点」「留档历史」按钮挂上宿主命令，
+    /// 对话框与历史窗口留在宿主（docs/plugin-architecture.md §5）。
+    /// </summary>
+    IArchiveUiCommands? ArchiveUi { get; }
+}
+
+/// <summary>宿主暴露给 rsync 归档插件的命令集。</summary>
+public interface IArchiveUiCommands
+{
+    /// <summary>标记关键节点（执行一次 rsync 归档）。</summary>
+    System.Windows.Input.ICommand ArchiveCommand { get; }
+
+    /// <summary>查看留档历史。</summary>
+    System.Windows.Input.ICommand ArchiveHistoryCommand { get; }
 }
 
 /// <summary>宿主暴露给 WIKI 插件的工具栏命令集。</summary>

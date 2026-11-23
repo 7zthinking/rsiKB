@@ -1,5 +1,6 @@
 using System.Windows;
 using KBEA.App.Views;
+using KBEA.Core.Archive;
 using KBEA.Core.Git;
 using KBEA.Core.Models;
 using Microsoft.Win32;
