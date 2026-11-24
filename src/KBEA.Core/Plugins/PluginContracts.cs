@@ -70,6 +70,29 @@ public sealed class PluginManifest
 
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// 用户是否显式设置过启用状态。
+    /// 为 true 时，用户的选择优先于发行方策略（plugins.defaults.json）——策略只决定「开箱默认」。
+    /// </summary>
+    public bool EnabledByUser { get; set; }
+
+    /// <summary>
+    /// 插件自带的默认启用值（用户改动前的原值）——供「恢复默认」用。
+    /// 首次改动时写入 plugin.json 的 defaultEnabled 字段，之后一直保留。
+    /// </summary>
+    public bool DefaultEnabled { get; set; } = true;
+
+    /// <summary>
+    /// 本次运行中用户是否改动过启用状态（内存态，不落盘）。
+    /// 设置页勾选后置位，保存设置时据此决定要不要写回 plugin.json。
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool UserModified { get; set; }
+
+    /// <summary>启用状态的来源（默认 / 发行方策略 / 用户设置），用于设置页展示。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public PluginEnableSource EnableSource { get; set; } = PluginEnableSource.Default;
+
     /// <summary>清单文件绝对路径（P5：启用开关写回 plugin.json 用；不参与序列化）。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string SourcePath { get; set; } = string.Empty;
@@ -109,10 +132,40 @@ public sealed class PluginStatusVm
     public string Capabilities => Manifest.Capabilities.Length == 0 ? "—" : string.Join(" · ", Manifest.Capabilities);
 
     public bool Enabled => Manifest.Enabled;
+
+    /// <summary>用户是否显式设置过（true 时不随发行方策略变化）。</summary>
+    public bool EnabledByUser => Manifest.EnabledByUser;
+
+    /// <summary>启用来源（展示用文案）。</summary>
+    public string EnableSourceText => Manifest.EnableSource switch
+    {
+        PluginEnableSource.PolicyEnabled => "发行方默认启用",
+        PluginEnableSource.PolicyDisabled => "发行方默认禁用",
+        PluginEnableSource.UserEnabled => "用户已启用",
+        PluginEnableSource.UserDisabled => "用户已禁用",
+        _ => "插件自带默认"
+    };
 }
 
 public sealed class PluginCatalog
 {
+    /// <summary>发行方默认启用策略（程序目录下 plugins.defaults.json）。</summary>
+    private static PluginEnablePolicy? _policy;
+
+    /// <summary>当前生效的发行方策略（首次读取后走缓存）。</summary>
+    public static PluginEnablePolicy Policy => _policy ??= PluginEnablePolicy.Load();
+
+    /// <summary>丢弃策略缓存，下次访问重新读盘。</summary>
+    public static void ReloadPolicy() => _policy = null;
+
+    /// <summary>
+    /// 测试用：临时把策略指向指定文件（null = 恢复从程序目录读取）。
+    /// </summary>
+    internal static void OverridePolicyForTests(string? policyPath)
+    {
+        _policy = policyPath is null ? null : PluginEnablePolicy.Load(policyPath);
+    }
+
     public IReadOnlyList<PluginManifest> Discover(string? pluginRoot = null)
     {
         pluginRoot ??= Path.Combine(AppContext.BaseDirectory, "plugins");
@@ -122,10 +175,15 @@ public sealed class PluginCatalog
         {
             try
             {
-                var manifest = JsonSerializer.Deserialize<PluginManifest>(ReadManifestText(file), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var text = ReadManifestText(file);
+                var manifest = JsonSerializer.Deserialize<PluginManifest>(text, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (manifest is not null && !string.IsNullOrWhiteSpace(manifest.Id))
                 {
                     manifest.SourcePath = file;
+                    // 清单没写 defaultEnabled 时，把当前的 enabled 当作插件自带默认值
+                    if (!text.Contains("\"defaultEnabled\"", StringComparison.OrdinalIgnoreCase))
+                        manifest.DefaultEnabled = manifest.Enabled;
+                    ApplyEnablePolicy(manifest);
                     result.Add(manifest);
                 }
             }
@@ -147,10 +205,14 @@ public sealed class PluginCatalog
         {
             try
             {
-                var manifest = JsonSerializer.Deserialize<PluginManifest>(ReadManifestText(file), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var text = ReadManifestText(file);
+                var manifest = JsonSerializer.Deserialize<PluginManifest>(text, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (manifest is not null && !string.IsNullOrWhiteSpace(manifest.Id))
                 {
                     manifest.SourcePath = file;
+                    if (!text.Contains("\"defaultEnabled\"", StringComparison.OrdinalIgnoreCase))
+                        manifest.DefaultEnabled = manifest.Enabled;
+                    ApplyEnablePolicy(manifest);
                     result.Add((manifest, Path.GetDirectoryName(file)!));
                 }
             }
@@ -160,6 +222,27 @@ public sealed class PluginCatalog
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// 应用发行方默认启用策略：用户显式设置过的插件保持用户选择；
+    /// 未设置过的按策略（plugins.defaults.json）决定启用与否，并记录启用来源。
+    /// </summary>
+    private static void ApplyEnablePolicy(PluginManifest manifest)
+    {
+        if (manifest.EnabledByUser)
+        {
+            manifest.EnableSource = manifest.Enabled ? PluginEnableSource.UserEnabled : PluginEnableSource.UserDisabled;
+            return;
+        }
+        var policyDefault = Policy.GetDefaultEnabled(manifest.Id);
+        if (policyDefault is null)
+        {
+            manifest.EnableSource = PluginEnableSource.Default;
+            return;
+        }
+        manifest.Enabled = policyDefault.Value;
+        manifest.EnableSource = policyDefault.Value ? PluginEnableSource.PolicyEnabled : PluginEnableSource.PolicyDisabled;
     }
 
     /// <summary>
@@ -175,7 +258,8 @@ public sealed class PluginCatalog
     /// <summary>
     /// 写回 plugin.json 的 enabled 开关（P5：设置窗口的插件启用/禁用）。
     /// 只改 enabled 字段，其余字段与未知字段原样保留（按 JSON 文本逐行定位，避免整份重写丢字段）。
-    /// 失败返回 false 并抛出异常由调用方记录。
+    /// 同时写入 enabledByUser=true，标记这是用户的显式选择（优先于发行方策略）；
+    /// 首次改动时把插件自带的默认启用值固化到 defaultEnabled，供「恢复默认」用。
     /// </summary>
     public static void SetEnabled(PluginManifest manifest, bool enabled)
     {
@@ -184,8 +268,40 @@ public sealed class PluginCatalog
 
         var json = ReadManifestText(manifest.SourcePath);
         var updated = RewriteEnabled(json, enabled);
+        updated = RewriteEnabledByUser(updated, true);
+        updated = RewriteDefaultEnabled(updated, manifest.DefaultEnabled);
         File.WriteAllText(manifest.SourcePath, updated, new System.Text.UTF8Encoding(false));
         manifest.Enabled = enabled;
+        manifest.EnabledByUser = true;
+        manifest.UserModified = true;
+        manifest.EnableSource = enabled ? PluginEnableSource.UserEnabled : PluginEnableSource.UserDisabled;
+    }
+
+    /// <summary>
+    /// 清除用户的显式选择（enabledByUser=false），让插件回到发行方策略 / 插件自带的默认值。
+    /// 写回的 enabled 是「最终生效值」（发行方策略优先于插件自带默认值）。
+    /// </summary>
+    public static void ResetToDefault(PluginManifest manifest)
+    {
+        if (string.IsNullOrWhiteSpace(manifest.SourcePath) || !File.Exists(manifest.SourcePath))
+            throw new FileNotFoundException("插件清单文件不存在", manifest.SourcePath);
+
+        // 最终生效值：发行方策略优先，其次插件自带的默认值
+        var policyDefault = Policy.GetDefaultEnabled(manifest.Id);
+        var effective = policyDefault ?? manifest.DefaultEnabled;
+
+        var json = ReadManifestText(manifest.SourcePath);
+        var updated = RewriteEnabledByUser(json, false);
+        updated = RewriteEnabled(updated, effective);
+        updated = RewriteDefaultEnabled(updated, manifest.DefaultEnabled);
+        File.WriteAllText(manifest.SourcePath, updated, new System.Text.UTF8Encoding(false));
+
+        manifest.EnabledByUser = false;
+        manifest.UserModified = true;
+        manifest.Enabled = effective;
+        manifest.EnableSource = policyDefault is null
+            ? PluginEnableSource.Default
+            : (policyDefault.Value ? PluginEnableSource.PolicyEnabled : PluginEnableSource.PolicyDisabled);
     }
 
     /// <summary>在 plugin.json 文本中替换/插入 enabled 字段（保留其余原文与缩进风格）。</summary>
@@ -212,6 +328,55 @@ public sealed class PluginCatalog
         var body = json[..closing].TrimEnd();
         var tail = body.EndsWith(",", StringComparison.Ordinal) ? "" : ",";
         return $"{body}{tail}\n  \"enabled\": {(enabled ? "true" : "false")}\n}}\n";
+    }
+
+    /// <summary>在 plugin.json 文本中替换/插入 enabledByUser 字段（保留其余原文）。</summary>
+    private static string RewriteEnabledByUser(string json, bool byUser)
+    {
+        var lines = json.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var trimmed = line.TrimStart();
+            if (!trimmed.StartsWith("\"enabledByUser\"", StringComparison.Ordinal)) continue;
+            var colon = line.IndexOf(':', StringComparison.Ordinal);
+            if (colon < 0) continue;
+            var indent = line[..(line.Length - trimmed.Length)];
+            var hasComma = line.TrimEnd().EndsWith(",", StringComparison.Ordinal);
+            lines[i] = $"{indent}\"enabledByUser\": {(byUser ? "true" : "false")}{(hasComma ? "," : string.Empty)}";
+            return string.Join('\n', lines);
+        }
+
+        // 无 enabledByUser 字段：插到对象结尾之前
+        var closing = json.LastIndexOf('}');
+        if (closing < 0) return json;
+        var body = json[..closing].TrimEnd();
+        var tail = body.EndsWith(",", StringComparison.Ordinal) ? "" : ",";
+        return $"{body}{tail}\n  \"enabledByUser\": {(byUser ? "true" : "false")}\n}}\n";
+    }
+
+    /// <summary>在 plugin.json 文本中替换/插入 defaultEnabled 字段（保留其余原文）。</summary>
+    private static string RewriteDefaultEnabled(string json, bool defaultEnabled)
+    {
+        var lines = json.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var trimmed = line.TrimStart();
+            if (!trimmed.StartsWith("\"defaultEnabled\"", StringComparison.Ordinal)) continue;
+            var colon = line.IndexOf(':', StringComparison.Ordinal);
+            if (colon < 0) continue;
+            var indent = line[..(line.Length - trimmed.Length)];
+            var hasComma = line.TrimEnd().EndsWith(",", StringComparison.Ordinal);
+            lines[i] = $"{indent}\"defaultEnabled\": {(defaultEnabled ? "true" : "false")}{(hasComma ? "," : string.Empty)}";
+            return string.Join('\n', lines);
+        }
+
+        var closing = json.LastIndexOf('}');
+        if (closing < 0) return json;
+        var body = json[..closing].TrimEnd();
+        var tail = body.EndsWith(",", StringComparison.Ordinal) ? "" : ",";
+        return $"{body}{tail}\n  \"defaultEnabled\": {(defaultEnabled ? "true" : "false")}\n}}\n";
     }
 }
 

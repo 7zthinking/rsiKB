@@ -203,6 +203,23 @@ branding/
 
 > ⚠️ Windows 任务栏与资源管理器里的 exe 图标来自编译期的 `app.ico`，运行时无法替换 —— 需要换图标请改 `src/KBEA.App/Assets/app.ico` 后重新构建。
 
+## 默认启用哪些插件
+
+程序目录下的 `plugins.defaults.json`（固定命名）决定开箱默认启用哪些插件：
+
+```json
+{
+  "enabled":  [ "kbea-plugin-git", "kbea-plugin-wiki" ],
+  "disabled": [ "kbea-plugin-sample", "kbea-plugin-rsync" ]
+}
+```
+
+- `enabled` 里的插件开箱即用；`disabled` 里的开箱禁用（优先于 `enabled`）
+- 未列出的插件沿用各自 `plugin.json` 的 `enabled` 字段
+- **用户的显式选择优先于该预设**：用户在设置 → 插件管理里改过的插件不受发行方预设影响，点「恢复默认」可清除
+
+启用状态写在各插件目录的 `plugin.json` 里（`enabled` / `enabledByUser` / `defaultEnabled` 三个字段），改的是插件自己的目录，不是全局配置。
+
 ## 当前边界
 
 诚实地说，以下还没做：

@@ -76,6 +76,16 @@ my-plugin/
 | `capabilities` | ✅ | 能力声明，见 §4.2 |
 | `minHostVersion` | ✅ | 兼容的宿主最低版本，低于则跳过加载并提示原因 |
 | `enabled` | ✅ | 启用开关，用户可在设置页切换（写回本文件） |
+| `enabledByUser` | — | 用户是否显式设置过。为 `true` 时用户的选择优先于发行方策略；宿主自动维护，你不用手写 |
+| `defaultEnabled` | — | 插件自带的默认启用值（用户改动前的原值），供「恢复默认」用；宿主自动维护 |
+
+> **发行方默认启用策略**：程序目录下的 `plugins.defaults.json`（固定命名）决定开箱默认启用哪些插件：
+
+> ```json
+> { "enabled": ["kbea-plugin-git"], "disabled": ["kbea-plugin-sample"] }
+> ```
+
+> `disabled` 优先于 `enabled`；未列出的插件沿用各自 `plugin.json` 的 `enabled`。**用户的显式选择优先于该策略** —— 用户在设置里改过的插件（`enabledByUser: true`）不受发行方预设影响。
 
 ### 1.2 写入口类
 
@@ -651,5 +661,6 @@ public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
 | `src/KBEA.Plugin.Git/` | 完整功能插件（服务替换 + 工具栏） |
 | `src/KBEA.Plugin.Wiki/` | 最小 UI 入口范例 |
 | `src/KBEA.Plugin.Rsync/` | 归档插件范例（自治数据库 + 自有配置 + 服务替换） |
+| `src/KBEA.Core/Plugins/PluginEnablePolicy.cs` | 发行方默认启用策略（plugins.defaults.json） |
 | `src/KBEA.Core/Plugins/PluginLoader.cs` | ALC 加载与校验实现 |
 | `src/KBEA.App/Services/PluginHostService.cs` | 宿主侧接入实现 |

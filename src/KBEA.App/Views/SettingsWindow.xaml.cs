@@ -11,6 +11,7 @@ using System.Windows.Input;
 using KBEA.App.Branding;
 using KBEA.App.Services;
 using KBEA.Core.Models;
+using KBEA.Core.Plugins;
 using KBEA.Core.Services;
 using Microsoft.Win32;
 
@@ -398,6 +399,7 @@ public partial class SettingsWindow : Window
             var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var info = new StackPanel();
             info.Children.Add(new TextBlock
@@ -413,8 +415,16 @@ public partial class SettingsWindow : Window
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2, 0, 0)
             });
+            info.Children.Add(new TextBlock
+            {
+                Text = $"启用来源：{status.EnableSourceText}",
+                Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+                FontSize = 11,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
             Grid.SetColumn(info, 0);
 
+            // 恢复发行方默认：清除用户显式选择，回到策略/清单自带的默认值
             var toggle = new CheckBox
             {
                 Content = "启用",
@@ -423,11 +433,24 @@ public partial class SettingsWindow : Window
                 Tag = status
             };
             // 变更记录到 manifest（保存时统一写回 plugin.json）
-            toggle.Checked += (_, _) => { status.Manifest.Enabled = true; };
-            toggle.Unchecked += (_, _) => { status.Manifest.Enabled = false; };
-            Grid.SetColumn(toggle, 1);
+            toggle.Checked += (_, _) => { status.Manifest.Enabled = true; status.Manifest.UserModified = true; };
+            toggle.Unchecked += (_, _) => { status.Manifest.Enabled = false; status.Manifest.UserModified = true; };
+
+            var reset = new Button
+            {
+                Content = "恢复默认",
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(8, 2, 8, 2),
+                ToolTip = "清除本机对该插件的显式设置，回到发行方策略或插件自带的默认值",
+                Tag = status
+            };
+            reset.Click += (_, _) => ResetPluginToDefault(status, toggle);
+            Grid.SetColumn(reset, 1);
+            Grid.SetColumn(toggle, 2);
 
             row.Children.Add(info);
+            row.Children.Add(reset);
             row.Children.Add(toggle);
             panel.Children.Add(row);
         }
@@ -441,13 +464,29 @@ public partial class SettingsWindow : Window
         };
         tip.Child = new TextBlock
         {
-            Text = "提示：插件的启用状态保存在其 plugin.json 中。禁用后重启应用不再加载该插件（工具栏按钮、扩展点一并消失）。",
+            Text = "提示：插件的启用状态保存在其 plugin.json 中。禁用后重启应用不再加载该插件（工具栏按钮、扩展点一并消失）。发行方可在程序目录的 plugins.defaults.json 中预设默认启用的插件；用户在此处的显式选择优先于该预设，可用「恢复默认」清除。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
         };
         panel.Children.Add(tip);
 
         return panel;
+    }
+
+    /// <summary>「恢复默认」：清除用户对该插件的显式设置，回到发行方策略或插件自带的默认值。</summary>
+    private void ResetPluginToDefault(PluginStatusVm status, CheckBox toggle)
+    {
+        try
+        {
+            KBEA.Core.Plugins.PluginCatalog.ResetToDefault(status.Manifest);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"恢复默认失败：{ex.Message}", "插件管理", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        // 勾选框同步到策略给出的状态
+        toggle.IsChecked = status.Enabled;
     }
 
     /// <summary>数字输入行：TextBox 绑定数值配置项（WPF 默认转换器，非法输入保持原值）。</summary>
@@ -920,12 +959,18 @@ public partial class SettingsWindow : Window
         DialogResult = true;
     }
 
-    /// <summary>把插件启用开关写回各自 plugin.json；返回失败的插件说明。</summary>
+    /// <summary>
+    /// 把插件启用开关写回各自 plugin.json；返回失败的插件说明。
+    /// 只写「用户本次改动过」的插件：点过「恢复默认」的插件已在点击时落盘（enabledByUser=false），
+    /// 这里不能再来一次 SetEnabled —— 那会把它重新标记成用户显式设置。
+    /// </summary>
     private List<string> SavePluginEnableStates()
     {
         var errors = new List<string>();
         foreach (var status in PluginBridge.GetPluginStatuses())
         {
+            // 用户本次没动过 → 保持发行方策略/清单默认值，不写回
+            if (!status.Manifest.UserModified) continue;
             try { KBEA.Core.Plugins.PluginCatalog.SetEnabled(status.Manifest, status.Manifest.Enabled); }
             catch (Exception ex) { errors.Add($"{status.Name}：{ex.Message}"); }
         }

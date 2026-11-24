@@ -30,6 +30,12 @@ foreach ($Dir in @($PortDir, $LightDir)) {
 }
 Write-Host "  => branding/ (branding.yaml + logo.png)" -ForegroundColor Green
 
+# ---- 发行方默认启用策略：plugins.defaults.json 随两个产物分发（决定开箱默认启用哪些插件）----
+foreach ($Dir in @($PortDir, $LightDir)) {
+    Copy-Item (Join-Path $Root "packaging/plugins.defaults.json") $Dir -Force
+}
+Write-Host "  => plugins.defaults.json (开箱默认启用的插件)" -ForegroundColor Green
+
 # ---- Light: 多文件 self-contained（方便逐个签名 + 开发调试）----
 Write-Host "`n[2/5] Publishing Light (multi-file self-contained)..." -ForegroundColor Cyan
 & $Dotnet publish $Proj `

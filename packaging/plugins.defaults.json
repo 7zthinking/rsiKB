@@ -1,0 +1,11 @@
+{
+  "_comment": "发行方默认启用的插件。放在程序目录（exe 同级）下，文件名固定 plugins.defaults.json。enabled 列表里的插件开箱即用；disabled 列表里的插件开箱禁用（优先于 enabled）。未列出的插件沿用各自 plugin.json 的 enabled 字段。用户可在设置 → 插件管理里逐个调整，用户的选择优先于此文件。",
+  "enabled": [
+    "kbea-plugin-git",
+    "kbea-plugin-wiki"
+  ],
+  "disabled": [
+    "kbea-plugin-sample",
+    "kbea-plugin-rsync"
+  ]
+}
