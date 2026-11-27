@@ -258,21 +258,34 @@ public partial class SettingsWindow : Window
             foreach (var entry in related)
                 host.Children.Add(MakeCredentialCard(entry, string.Join("、", hostToSpaces[entry.Host]), host, dc));
 
-        // 第二组：其他凭证（折叠展示）
-        var expander = new Expander
+        // 第二组：其他凭证（不折叠：「其他：」标签 + 分割线后直接列出）
+        if (others.Count > 0)
         {
-            Header = $"其他凭证（{others.Count} 条）",
-            IsExpanded = false,
-            Margin = new Thickness(0, 8, 0, 0)
-        };
-        var othersPanel = new StackPanel();
-        if (others.Count == 0)
-            othersPanel.Children.Add(Hint("没有其他已保存的 Git 凭证。"));
-        else
+            var otherHeader = new Grid { Margin = new Thickness(0, 14, 0, 4) };
+            otherHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            otherHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var otherLabel = new TextBlock
+            {
+                Text = "其他：",
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(otherLabel, 0);
+            var divider = new Border
+            {
+                Height = 1,
+                Background = (System.Windows.Media.Brush)FindResource("BorderBrush"),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(divider, 1);
+            otherHeader.Children.Add(otherLabel);
+            otherHeader.Children.Add(divider);
+            host.Children.Add(otherHeader);
+
             foreach (var entry in others)
-                othersPanel.Children.Add(MakeCredentialCard(entry, null, host, dc));
-        expander.Content = othersPanel;
-        host.Children.Add(expander);
+                host.Children.Add(MakeCredentialCard(entry, null, host, dc));
+        }
 
         var tip = new Border
         {
@@ -290,7 +303,7 @@ public partial class SettingsWindow : Window
         host.Children.Add(tip);
     }
 
-    /// <summary>凭证卡片（与「关于我们」同视觉）：地址为标题，右侧用户名，说明行为来源空间与最后写入时间，底部删除按钮。</summary>
+    /// <summary>凭证卡片（与「关于我们」同视觉）：标题行为仓库地址，说明行为凭证内容（用户名）+ 来源空间 + 最后写入时间，底部删除按钮。</summary>
     private FrameworkElement MakeCredentialCard(GitCredentialEntry entry, string? source, StackPanel sectionHost, AppConfiguration dc)
     {
         var deleteBtn = new Button
@@ -318,10 +331,11 @@ public partial class SettingsWindow : Window
         return MakeAboutCard(
             entry.Url,
             null,
-            (source is null ? string.Empty : $"{source} · ") + $"最后写入 {entry.LastWritten:yyyy-MM-dd}",
+            $"用户名：{entry.UserName ?? "未记录"} · "
+            + (source is null ? string.Empty : $"{source} · ")
+            + $"最后写入 {entry.LastWritten:yyyy-MM-dd}",
             null,
-            deleteBtn,
-            string.IsNullOrWhiteSpace(entry.UserName) ? "未记录用户名" : entry.UserName);
+            deleteBtn);
     }
 
     private FrameworkElement BuildAppearancePanel()
