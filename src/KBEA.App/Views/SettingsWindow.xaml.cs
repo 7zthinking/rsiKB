@@ -671,7 +671,27 @@ public partial class SettingsWindow : Window
             "https://github.com/7zthinking/rsiKB",
             footer));
 
-        // ===== 开源依赖卡片 =====
+        // ===== 插件卡片按 Placement 分组：置顶（First）/ 并入开源依赖（Dependencies）/ 插件提供（默认）=====
+        // 各组内按 SortOrder 稳定排序：小者在前，同值保持相对顺序（内置依赖卡全为 0，按声明顺序）。
+        var pluginCards = PluginBridge.GetAboutCards();
+        var firstCards = pluginCards
+            .Where(c => c.Placement == AboutCardPlacement.First)
+            .OrderBy(c => c.SortOrder)
+            .ToList();
+        var dependencyCards = BuildDependencyCards()
+            .Concat(pluginCards.Where(c => c.Placement == AboutCardPlacement.Dependencies))
+            .OrderBy(c => c.SortOrder)
+            .ToList();
+        var pluginGroupCards = pluginCards
+            .Where(c => c.Placement == AboutCardPlacement.Plugin)
+            .OrderBy(c => c.SortOrder)
+            .ToList();
+
+        // ===== 置顶卡片：排在品牌主卡片之前 =====
+        foreach (var card in firstCards)
+            panel.Children.Add(MakeAboutCard(card.Title, card.Version, card.Description, card.LinkUrl));
+
+        // ===== 开源依赖 =====
         panel.Children.Add(new TextBlock
         {
             Text = "开源依赖",
@@ -679,12 +699,11 @@ public partial class SettingsWindow : Window
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 8, 0, 8)
         });
-        foreach (var dep in BuildDependencyCards())
+        foreach (var dep in dependencyCards)
             panel.Children.Add(MakeAboutCard(dep.Title, dep.Version, dep.Description, dep.LinkUrl));
 
-        // ===== 插件提供的卡片 =====
-        var pluginCards = PluginBridge.GetAboutCards();
-        if (pluginCards.Count > 0)
+        // ===== 插件提供 =====
+        if (pluginGroupCards.Count > 0)
         {
             panel.Children.Add(new TextBlock
             {
@@ -693,7 +712,7 @@ public partial class SettingsWindow : Window
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 8, 0, 8)
             });
-            foreach (var card in pluginCards)
+            foreach (var card in pluginGroupCards)
                 panel.Children.Add(MakeAboutCard(card.Title, card.Version, card.Description, card.LinkUrl));
         }
 

@@ -109,13 +109,17 @@ public sealed class SamplePlugin : IPluginEntryPoint, IToolbarContribution,
         _context?.Ui.SetGlobalStatus($"示例插件设置已保存：{_sampleNote}");
     }
 
-    /// <summary>关于卡片：设置 → 关于我们 页「插件提供」分组下追加示例卡片。</summary>
+    /// <summary>关于卡片：演示 Placement/SortOrder——本例并入「开源依赖」组、排在内置依赖卡之后；不填则默认进「插件提供」组。</summary>
     public AboutCardInfo? GetAboutCard() => new()
     {
         Title = "示例插件",
         Version = "0.1.0",
         Description = "框架打样插件：演示工具栏、详情字段、预览接手、设置页与关于卡片等扩展点的接入方式。",
-        LinkUrl = "https://github.com/7zthinking/rsiKB"
+        LinkUrl = "https://github.com/7zthinking/rsiKB",
+        // Placement：Plugin=「插件提供」组（默认）；Dependencies=并入「开源依赖」组；First=置顶主卡片之前
+        Placement = AboutCardPlacement.Dependencies,
+        // 组内排序：小者在前；内置依赖卡全为 0（按声明顺序），填大值排在其后
+        SortOrder = 100
     };
 }
 

@@ -485,8 +485,19 @@ public sealed record AboutCardInfo
     public string Description { get; init; } // 一行说明
     public string? Version { get; init; }    // 版本号（可空，展示为「版本 x」）
     public string? LinkUrl { get; init; }    // 标题跳转链接（可空）
+    public AboutCardPlacement Placement { get; init; }  // 摆放位置（默认 Plugin）
+    public int SortOrder { get; init; }      // 组内排序，小者在前
+}
+
+public enum AboutCardPlacement
+{
+    Plugin = 0,        // 「插件提供」分组（默认）
+    Dependencies = 1,  // 并入「开源依赖」分组，与内置依赖卡一起排序
+    First = 2,         // 置顶：排在品牌主卡片之前（页面最顶部）
 }
 ```
+
+**排序规则**：各组内按 `SortOrder` 升序**稳定排序**（同值保持相对顺序）。内置依赖卡全部为 0、按声明顺序排列——插件卡想插在它们中间就填对应的权重值（如 50 插到中间、100 排到最后），填 0 则排在内置依赖之前。
 
 示例（打样插件 SamplePlugin 的实现）：
 
@@ -496,7 +507,9 @@ public AboutCardInfo? GetAboutCard() => new()
     Title = "示例插件",
     Version = "0.1.0",
     Description = "框架打样插件：演示各扩展点的接入方式。",
-    LinkUrl = "https://github.com/7zthinking/rsiKB"
+    LinkUrl = "https://github.com/7zthinking/rsiKB",
+    Placement = AboutCardPlacement.Dependencies, // 并入「开源依赖」组（不填则进「插件提供」组）
+    SortOrder = 100                              // 排在内置依赖卡之后
 };
 ```
 

@@ -640,6 +640,19 @@ public interface IPreviewContribution
     (byte[]? ImageData, string Text) Render(string filePath);
 }
 
+/// <summary>「关于我们」卡片在页面上的摆放位置（插件经 AboutCardInfo.Placement 声明）。</summary>
+public enum AboutCardPlacement
+{
+    /// <summary>默认：放进「插件提供」分组。</summary>
+    Plugin = 0,
+
+    /// <summary>并入「开源依赖」分组，与内置依赖卡片一起按 SortOrder 排序。</summary>
+    Dependencies = 1,
+
+    /// <summary>置顶：排在品牌主卡片之前（页面最顶部）。</summary>
+    First = 2,
+}
+
 /// <summary>「关于我们」卡片内容：插件经 IAboutContribution 产出，宿主渲染为设置 → 关于我们 页的卡片。</summary>
 public sealed record AboutCardInfo
 {
@@ -654,6 +667,13 @@ public sealed record AboutCardInfo
 
     /// <summary>点击标题跳转的链接（可空）。</summary>
     public string? LinkUrl { get; init; }
+
+    /// <summary>摆放位置：插件提供分组（默认）/ 并入开源依赖 / 置顶主卡片之前。</summary>
+    public AboutCardPlacement Placement { get; init; } = AboutCardPlacement.Plugin;
+
+    /// <summary>组内排序权重（小者在前）。内置依赖卡片全部为 0 并保持声明顺序；
+    /// 插件卡填 0 会排在内置依赖之前，想插在某张卡后面就填更大的值。OrderBy 为稳定排序，同值不改变相对顺序。</summary>
+    public int SortOrder { get; init; }
 }
 
 /// <summary>
