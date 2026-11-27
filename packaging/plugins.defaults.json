@@ -5,7 +5,6 @@
     "kbea-plugin-wiki"
   ],
   "disabled": [
-    "kbea-plugin-sample",
-    "kbea-plugin-rsync"
+    "kbea-plugin-sample"
   ]
 }

@@ -50,7 +50,7 @@ my-plugin/
 > `KBEA.Core` 自身带 `DiffPlex`、`Microsoft.Data.Sqlite`、`Makaretu.Dns.Multicast` 依赖，引用后会随插件输出。宿主加载插件时 `KBEA.Core` 由宿主提供、不重复加载，因此这些依赖不会造成版本冲突。
 
 > **依赖分发规则**：插件目录里只放「插件自己直接使用」的依赖 + 入口 DLL，**不要**放 `KBEA.Core.dll` 副本。
-> 插件 ALC 会优先从插件目录解析依赖，所以直接使用的第三方库必须随插件目录分发（例：`kbea-plugin-git` 带 `LibGit2Sharp.dll`，`kbea-plugin-rsync` 带 `Microsoft.Data.Sqlite.dll` + `SQLitePCLRaw.*.dll`）。
+> 插件 ALC 会优先从插件目录解析依赖，所以直接使用的第三方库必须随插件目录分发（例：`kbea-plugin-git` 带 `LibGit2Sharp.dll`）。
 > 原生库按「插件目录 + `runtimes/win-x64/native/`」两处都放一份兜底。
 
 **plugin.json**
@@ -535,6 +535,57 @@ public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
 }
 ```
 
+### 6.1 接管「关键节点留档」（服务替换范例）
+
+宿主为归档能力预留了完整契约与 UI：**你实现逻辑，宿主负责对话框、进度条与留档历史窗口**。
+
+```csharp
+// KBEA.Core.Archive/ArchiveContracts.cs
+public sealed record ArchiveRecord(string Id, string SpaceName, string NodeName,
+    string Destination, string Note, DateTimeOffset CreatedAt, string Status);
+
+public interface IArchiveOperations
+{
+    Task<ArchiveRecord> CreateAsync(string spaceName, string spacePath, string note,
+        IProgress<string>? progress = null, CancellationToken cancellationToken = default);
+    IReadOnlyList<ArchiveRecord> GetHistory(string spacePath);
+}
+```
+
+插件里实现它并在 `Init` 注册：
+
+```csharp
+public void Init(IPluginHostContext context)
+{
+    ArchiveOperationsProvider.Register(new MyArchiveService());   // 静态单例注册
+}
+```
+
+再挂上工具栏按钮：
+
+```csharp
+public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
+{
+    var ui = _context?.ArchiveUi;
+    if (ui is null) return [];
+    return [new ToolbarGroupVm
+    {
+        Title = "归档",
+        Buttons =
+        [
+            new ToolbarButtonVm { Icon = ToolbarIcon.Save, Label = "关键节点",
+                Tooltip = "标记关键节点：把当前空间归档到归档根目录", Command = ui.ArchiveCommand },
+            new ToolbarButtonVm { Icon = ToolbarIcon.History, Label = "留档历史",
+                Tooltip = "查看该空间的留档历史记录", Command = ui.ArchiveHistoryCommand }
+        ]
+    }];
+}
+```
+
+宿主会自动处理：备注输入对话框、进度回调（`IProgress<string>`）、成功/失败提示、留档历史窗口，以及插件未加载时的优雅降级提示。
+
+> 留档历史建议存自己的数据库（如空间目录下的 `.7z/` 子目录），别写进宿主的 `meta.db` —— 那是宿主的内部存储。
+
 ---
 
 ## 7. 线程模型
@@ -656,11 +707,10 @@ public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
 | 路径 | 内容 |
 |---|---|
 | `src/KBEA.Core/Plugins/PluginContracts.cs` | 全部契约定义（权威来源） |
-| `src/KBEA.Core/Archive/ArchiveContracts.cs` | 归档契约（`IArchiveOperations` + `ArchiveOperationsProvider`） |
+| `src/KBEA.Core/Archive/ArchiveContracts.cs` | 归档契约（`IArchiveOperations` + `ArchiveOperationsProvider`）——实现由插件提供 |
 | `src/KBEA.Plugin.Sample/` | 样例插件（覆盖全部扩展点） |
 | `src/KBEA.Plugin.Git/` | 完整功能插件（服务替换 + 工具栏） |
 | `src/KBEA.Plugin.Wiki/` | 最小 UI 入口范例 |
-| `src/KBEA.Plugin.Rsync/` | 归档插件范例（自治数据库 + 自有配置 + 服务替换） |
 | `src/KBEA.Core/Plugins/PluginEnablePolicy.cs` | 发行方默认启用策略（plugins.defaults.json） |
 | `src/KBEA.Core/Plugins/PluginLoader.cs` | ALC 加载与校验实现 |
 | `src/KBEA.App/Services/PluginHostService.cs` | 宿主侧接入实现 |

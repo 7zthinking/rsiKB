@@ -17,3 +17,14 @@ logo-size: 30
 
 # 一句话简介：显示在设置 → 关于我们；留空则用内置文案
 tagline: ""
+
+# ---- 强调色系（亮/暗主题共用）----
+# 支持 #RGB / #RRGGBB / #AARRGGBB（也可省略 #）；留空则用内置配色。
+# accent      主色：主按钮、进度条、侧栏选中项
+# accent-soft 主色浅色态：选中行底色、按下态
+# success     成功提示色
+# warning     警告提示色
+accent: ""
+accent-soft: ""
+success: ""
+warning: ""

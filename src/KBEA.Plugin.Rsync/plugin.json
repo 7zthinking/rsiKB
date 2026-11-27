@@ -1,9 +1,0 @@
-{
-  "id": "kbea-plugin-rsync",
-  "name": "rsync 归档插件",
-  "version": "0.1.0",
-  "entryAssembly": "KBEA.Plugin.Rsync.dll",
-  "capabilities": [ "archive", "toolbar", "settings" ],
-  "minHostVersion": "0.3.0",
-  "enabled": true
-}

@@ -1,7 +1,7 @@
 namespace KBEA.App.Branding;
 
 /// <summary>
-/// 品牌配置：程序目录 <c>branding/</c> 下的固化配置（logo + 文案）。
+/// 品牌配置：程序目录 <c>branding/</c> 下的固化配置（logo + 文案 + 强调色系）。
 /// 发行方或二次开发者只需替换该目录里的文件即可换品牌，无需改代码。
 /// 字段与 branding.yaml 一一对应（YAML 用 camelCase / kebab-case 均可，解析时忽略大小写与连字符）。
 /// </summary>
@@ -21,6 +21,21 @@ public sealed class BrandingOptions
 
     /// <summary>侧栏 logo 显示尺寸（像素）。0 表示用内置 30。</summary>
     public double LogoSize { get; set; } = 30;
+
+    // ---- 强调色系（亮/暗主题共用；留空则用内置配色）----
+    // 支持 #RGB / #RRGGBB / #AARRGGBB；也接受不带 # 的写法。
+
+    /// <summary>主色：主按钮、选中态强调、进度条、侧栏选中项。</summary>
+    public string Accent { get; set; } = string.Empty;
+
+    /// <summary>主色浅色态：选中行底色、按下态。</summary>
+    public string AccentSoft { get; set; } = string.Empty;
+
+    /// <summary>成功色：完成/成功提示。</summary>
+    public string Success { get; set; } = string.Empty;
+
+    /// <summary>警告色：警告提示。</summary>
+    public string Warning { get; set; } = string.Empty;
 
     /// <summary>内置默认文案（配置缺失时兜底）。</summary>
     public const string DefaultProductName = "知识库自进化助手";

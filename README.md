@@ -24,7 +24,7 @@ KBEA 不是"又一个网盘客户端"，而是一套**把知识库的存储、�
 - **分布式（Distributed）**：每台机器既是客户端也是服务端（mDNS 发现 + Kestrel 端点），成员之间点对点直连；断网、离机、owner 不在线，都不影响本地数据的完整可用。
 - **自管理（Self-managed）**：数据归属清晰 —— 业务文件在用户自己的目录里，Git 仓库、元数据库（`.7z/meta.db`）、索引都在本机，凭据走 Windows 凭据管理器；卸载程序不留下任何"云端孤儿"。
 - **自组织（Self-organizing）**：团队关系靠**邀请码 + 成员签名**自举建立，成员表在每台机器持有签名副本；共享空间按 search/read/write 三级权限自声明，加入即可被全网发现并按级别访问。
-- **自进化（Self-evolving）**：文件变更自动防抖感知、后台知识索引持续增量构建、关键节点 rsync 留档 —— 知识库在不增加人工负担的前提下随使用不断增殖价值。
+- **自进化（Self-evolving）**：文件变更自动防抖感知、后台知识索引持续增量构建、可插拔的关键节点留档 —— 知识库在不增加人工负担的前提下随使用不断增殖价值。
 
 ## 核心特性
 
@@ -39,7 +39,7 @@ KBEA 不是"又一个网盘客户端"，而是一套**把知识库的存储、�
 | **资料编目** | 多级分类、一文件挂多分类、跨挂载文件夹汇总、SHA-256 指纹、快照导出 |
 | **Git 集成** | 初始化、main 默认分支、远程绑定、状态角标、提交并推送、拉取、历史记录、HEAD 基线 vs 工作区双屏文本比对（DiffPlex）、冲突标记解决 |
 | **自动检测** | FileSystemWatcher + 1.5 秒防抖，默认只提示、不自动上传 |
-| **rsync 留档** | 由 `kbea-plugin-rsync` 插件提供：关键节点归档、进度输出、超时保护、独立留档历史库 |
+| **关键节点留档** | 归档契约已就绪（`IArchiveOperations`），实现由插件提供：对话框、进度输出、留档历史窗口宿主已备好 |
 | **界面** | 亮/暗主题、可收缩侧栏（Ctrl+B）、可折叠预览、状态栏、统一 WPF 界面规范 |
 | **插件体系** | 独立的插件进程隔离加载（ALC），工具栏 / 设置页 / 详情字段 / 预览 / 元数据抽取五类扩展点，**详见 [插件开发指南](docs/plugin-development-guide.md)** |
 
@@ -69,8 +69,7 @@ Windows 用户也可直接运行仓库内的 `run-source.bat`、`build.bat`、`t
 3. **编目**：先选中分类，再在文件列表选中文件，点击"编入分类"。点击分类即可查看跨文件夹汇总。
 4. **Git**：点击"Git 绑定"填写远程地址；之后使用"拉取更新""保存并上传""历史"。
 5. **团队共享**：生成邀请码，在另一台机器上输入短码加入；用**局域网诊断**面板可查看 mDNS 发现链路与端口连通性。
-6. **关键节点**：安装并启用 `kbea-plugin-rsync` 插件后，在插件设置页填写 `rsync.exe` 与归档根目录，再点击工具栏「归档 › 关键节点」。
-7. **解挂**：只移除组织关系，不删除业务文件、`.git/` 或 `.7z/`。
+6. **解挂**：只移除组织关系，不删除业务文件、`.git/` 或 `.7z/`。
 
 可用 `--config` 指定独立配置文件，便于测试或便携运行：
 
@@ -84,7 +83,6 @@ KBEA.exe --config "D:\KBEA-Config\workspaces.json"
 |---|---|
 | 工作空间、挂载关系、署名与设置 | `%AppData%\KBEA\workspaces.json` |
 | 编目挂接、文件索引、同步日志 | 各挂载文件夹的 `.7z/meta.db` |
-| 关键节点留档历史（rsync 插件） | 各挂载文件夹的 `.7z/archive.db` |
 | 编目快照 | 各挂载文件夹的 `.7z/catalog/` |
 
 `.7z/` 会自动加入 `.gitignore`；默认数据类扩展名也会加入忽略清单。**卸载 KBEA 不会删除你的业务文件。**
@@ -135,14 +133,13 @@ src/KBEA.Core/          核心模型、存储、Git、监听、差异与插件�
 src/KBEA.App/           WPF、MVVM、主题、对话框与主界面
 src/KBEA.Plugin.Git/    Git 插件（服务替换 + 工具栏范例）
 src/KBEA.Plugin.Wiki/   WIKI 插件
-src/KBEA.Plugin.Rsync/  rsync 归档插件（自治数据库 + 自有配置 + 服务替换）
 src/KBEA.Plugin.Sample/ 样例插件（覆盖全部扩展点）
 src/KBEA.Worker/        后台元数据服务进程
 src/KBEA.Diag/          存储层诊断工具
 src/KBEA.Smoke/         UI 冒烟验证（UIA）
 tests/KBEA.Tests/       xUnit 核心与集成测试
 eng/                    构建、验证与证书导出脚本
-branding/               品牌固化配置（branding.yaml + logo.png，改这里即可换品牌）
+branding/               品牌固化配置（branding.yaml + logo.png，改这里即可换品牌/配色）
 docs/                   插件开发指南、签名说明
 ```
 
@@ -152,7 +149,7 @@ docs/                   插件开发指南、签名说明
 
 - **Bug 报告**：请附上 KBEA 版本、Windows 版本、复现步骤与诊断日志（`%AppData%\KBEA\` 下）
 - **功能建议**：描述你想解决的真实场景
-- **插件**：如果做了插件，欢迎在 Issue 里分享；主仓库内置 Git / WIKI / Rsync / Sample 四个参考实现
+- **插件**：如果做了插件，欢迎在 Issue 里分享；主仓库内置 Git / WIKI / Sample 三个参考实现
 - **代码风格**：跟随现有代码风格，保持 Core 层无 UI 依赖
 
 提交 PR 前请确保本地 `dotnet test` 全绿。
@@ -167,17 +164,13 @@ This project uses SignPath Foundation for Windows code signing.
 
 > 自签名流程：`eng/export-sign-root.ps1` 导出根证书公钥（永不导出私钥），`sign.ps1` 签名。证书指纹通过环境变量 `KBEA_SIGN_THUMBPRINT` 传入，仓库中不含任何证书信息。
 
-## rsync 配置
+## 关键节点留档（归档契约）
 
-rsync 留档已移出核心，成为独立插件 `kbea-plugin-rsync`（源码在 `src/KBEA.Plugin.Rsync/`）。插件不在核心仓库携带第三方 rsync 二进制：请将可信的 Windows 便携版 rsync 放在 `tools/rsync/rsync.exe`，或在插件设置页指定其绝对路径。默认调用参数：
+核心只保留**归档契约**（`IArchiveOperations` / `IArchiveUiCommands`），具体实现由插件提供 —— 仓库不再内置 rsync 归档插件。
 
-```text
--avz --partial --backup-dir=<归档根>/<项目>/<节点时间>
-```
+宿主侧已经备好了「关键节点」对话框、进度输出与留档历史窗口：任何第三方插件实现 `IArchiveOperations` 并注册到 `ArchiveOperationsProvider`，就能直接挂上工具栏的「关键节点」「留档历史」按钮，无需改宿主代码。详见 [插件开发指南](docs/plugin-development-guide.md)。
 
-并排除 `.git/`、`.7z/index/` 和临时文件。
-
-插件的留档历史存放在各挂载文件夹的 `.7z/archive.db`（插件自治数据库，不进宿主的 `meta.db`）；插件配置存放在 `%AppData%\KBEA\plugins\kbea-plugin-rsync\settings.json`。
+留档历史若由插件自建数据库，建议放在各挂载文件夹的 `.7z/` 下（不进宿主的 `meta.db`）。
 
 ## 换品牌（branding）
 
@@ -185,7 +178,7 @@ rsync 留档已移出核心，成为独立插件 `kbea-plugin-rsync`（源码在
 
 ```text
 branding/
-├─ branding.yaml   # 品牌文案（固定文件名）
+├─ branding.yaml   # 品牌文案与强调色（固定文件名）
 └─ logo.png        # 侧栏 logo（文件名可在 yaml 里改）
 ```
 
@@ -198,8 +191,14 @@ branding/
 | `logo-file-name` | logo 文件名（相对 `branding/` 目录） |
 | `logo-size` | 侧栏 logo 显示尺寸（像素） |
 | `tagline` | 一句话简介：显示在设置 → 关于我们 |
+| `accent` | 主色：主按钮、进度条、侧栏选中项 |
+| `accent-soft` | 主色浅色态：选中行底色、按下态 |
+| `success` | 成功提示色 |
+| `warning` | 警告提示色 |
 
-改动后重启程序生效。目录或文件缺失、YAML 写坏时程序自动回落到内置默认值，不会启动失败。
+颜色支持 `#RGB` / `#RRGGBB` / `#AARRGGBB`（`#` 可省略），留空则用内置配色。强调色亮/暗主题共用；背景、文字、边框等基础色保持内置。
+
+改动后重启程序生效。目录或文件缺失、YAML 写坏、颜色值非法时程序自动回落到内置默认值，不会启动失败。
 
 > ⚠️ Windows 任务栏与资源管理器里的 exe 图标来自编译期的 `app.ico`，运行时无法替换 —— 需要换图标请改 `src/KBEA.App/Assets/app.ico` 后重新构建。
 
@@ -210,7 +209,7 @@ branding/
 ```json
 {
   "enabled":  [ "kbea-plugin-git", "kbea-plugin-wiki" ],
-  "disabled": [ "kbea-plugin-sample", "kbea-plugin-rsync" ]
+  "disabled": [ "kbea-plugin-sample" ]
 }
 ```
 
@@ -227,7 +226,7 @@ branding/
 - 插件暂不支持运行时热重载（禁用/启用需重启），也没有插件权限/信任模型 —— 安装插件等同于运行其代码
 - 私有远程仓库的 Windows 凭据管理器适配尚未完成；本地仓库及无需额外凭据的远程已验证
 - 完整双屏取舍窗口尚未接入（DiffPlex 服务与冲突读取已具备）
-- rsync 需要用户提供可信便携二进制，未对实际 rsync 服务器做集成测试
+- 关键节点留档只有契约与宿主 UI，仓库不内置实现（需第三方插件提供）
 - 仅支持 Windows（.NET 8 + WPF）
 
 ## 许可证
