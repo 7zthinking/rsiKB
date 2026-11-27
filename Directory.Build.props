@@ -16,7 +16,7 @@
        → CI 用 tag 版本号构建并自动创建 GitHub Release（覆盖这里的值）。
        这里的 <Version> 是本地开发默认版本，开发期随手跟进到下一版即可。 -->
   <PropertyGroup>
-    <Version>0.5.0</Version>
+    <Version>0.5.1</Version>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
   </PropertyGroup>
