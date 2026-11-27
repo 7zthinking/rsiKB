@@ -3,6 +3,7 @@ using System.Text.Json;
 using KBEA.Core.Knowledge;
 using KBEA.Core.Plugins;
 using KBEA.Core.Storage;
+using KBEA.Core.Versioning;
 
 namespace KBEA.Worker;
 
@@ -183,8 +184,8 @@ internal sealed class WorkerOptions
 /// </summary>
 internal sealed class WorkerPluginHost : IPluginHostContext
 {
-    /// <summary>与 App 侧 MainViewModel.Version 的语义版本保持一致。</summary>
-    private const string HostVersionValue = "0.3.0";
+    /// <summary>与 App 侧保持一致：来自程序集（Directory.Build.props 的 &lt;Version&gt;）。</summary>
+    private static string HostVersionValue => AppVersion.Version;
 
     public string HostVersion => HostVersionValue;
     public IMetadataWorkbench Metadata { get; } = new MetadataWorkbench();

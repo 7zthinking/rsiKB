@@ -1,8 +1,8 @@
-# KBEA 插件开发指南
+﻿# KBEA 插件开发指南
 
 面向第三方插件开发者。读完本文你将能独立写出一个可被 KBEA 加载、并在工具栏/设置页/详情面板/预览中展现功能的插件。
 
-- **宿主版本**：0.3.0
+- **宿主版本**：0.4.0
 - **契约命名空间**：`KBEA.Core.Plugins`
 - **契约程序集**：`KBEA.Core.dll`（插件直接引用即可）
 - **参考实现**：`src/KBEA.Plugin.Sample`（样例）、`src/KBEA.Plugin.Git`（完整功能插件）
@@ -62,7 +62,7 @@ my-plugin/
   "version": "1.0.0",
   "entryAssembly": "MyPlugin.dll",
   "capabilities": [ "toolbar" ],
-  "minHostVersion": "0.3.0",
+  "minHostVersion": "0.4.0",
   "enabled": true
 }
 ```
@@ -182,7 +182,7 @@ KBEA 退出
 ```csharp
 public interface IPluginHostContext
 {
-    string HostVersion { get; }              // "0.3.0"
+    string HostVersion { get; }              // "0.4.0"
 
     IMetadataWorkbench Metadata { get; }     // 元数据读写
     ISidebarState   Sidebar { get; }         // 左侧栏状态（只读快照）

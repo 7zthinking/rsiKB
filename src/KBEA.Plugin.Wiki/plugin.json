@@ -1,9 +1,9 @@
-{
+﻿{
   "id": "kbea-plugin-wiki",
   "name": "知识 WIKI 插件",
   "version": "0.1.0",
   "entryAssembly": "KBEA.Plugin.Wiki.dll",
   "capabilities": [ "wiki", "metadata", "toolbar" ],
-  "minHostVersion": "0.3.0",
+  "minHostVersion": "0.4.0",
   "enabled": true
 }

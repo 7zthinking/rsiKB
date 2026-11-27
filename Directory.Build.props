@@ -6,4 +6,14 @@
     <Authors>KBEA Contributors</Authors>
     <Product>知识库自进化助手</Product>
   </PropertyGroup>
+
+  <!-- 应用版本：全仓库唯一真相源。
+       所有项目继承这里的 <Version>；UI 显示、插件 minHostVersion 兼容判断、
+       「检查更新」都读程序集里的这个值（见 src/KBEA.Core/Versioning/AppVersion.cs）。
+       发布新版本时只改这一处。 -->
+  <PropertyGroup>
+    <Version>0.4.0</Version>
+    <AssemblyVersion>$(Version).0</AssemblyVersion>
+    <FileVersion>$(Version).0</FileVersion>
+  </PropertyGroup>
 </Project>

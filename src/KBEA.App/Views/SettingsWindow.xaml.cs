@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -13,6 +12,7 @@ using KBEA.App.Services;
 using KBEA.Core.Models;
 using KBEA.Core.Plugins;
 using KBEA.Core.Services;
+using KBEA.Core.Versioning;
 using Microsoft.Win32;
 
 namespace KBEA.App.Views;
@@ -30,7 +30,8 @@ public partial class SettingsWindow : Window
 
     public ObservableCollection<LlmEndpointConfig> LlmEndpoints { get; } = new();
 
-    private const string CurrentVersion = "v0.3.0";
+    /// <summary>当前版本号（来自程序集，唯一真相源在 Directory.Build.props）。</summary>
+    private static string CurrentVersion => AppVersion.Version;
 
     /// <param name="pluginPages">P4 插件设置页（经 PluginHostService 收集，UI 线程构建）。</param>
     /// <param name="onPluginSave">宿主「保存设置」时回调插件保存（SettingsWindow 不感知具体插件）。</param>
@@ -538,7 +539,7 @@ public partial class SettingsWindow : Window
         });
         panel.Children.Add(new TextBlock
         {
-            Text = $"版本 {CurrentVersion}",
+            Text = $"版本 {AppVersion.Display}",
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
             Margin = new Thickness(0, 2, 0, 10)
         });
@@ -874,34 +875,21 @@ public partial class SettingsWindow : Window
             Cursor = Cursors.Wait;
             Mouse.OverrideCursor = Cursors.Wait;
 
-            var response = await _httpClient.GetAsync("https://api.github.com/repos/7zthinking/rsiKB/releases/latest");
+            // 用 Releases 列表接口（而不是 /releases/latest）：后者会跳过预发布版，
+            // 测试版发布时用户永远看不到更新。
+            var response = await _httpClient.GetAsync(UpdateChecker.ReleasesApiUrl);
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
+            var result = UpdateChecker.Evaluate(json, CurrentVersion);
 
-            var latestTag = doc.RootElement.TryGetProperty("tag_name", out var tagProp)
-                ? tagProp.GetString() ?? string.Empty
-                : string.Empty;
-
-            if (string.IsNullOrWhiteSpace(latestTag))
+            if (result.Status == UpdateStatus.Failed)
             {
-                MessageBox.Show(this, "无法读取远程版本号，请稍后重试。", "检查更新", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, result.Message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            var currentNum = NormalizeVersion(CurrentVersion);
-            var latestNum = NormalizeVersion(latestTag);
-
-            string message;
-            if (CompareVersionNumbers(currentNum, latestNum) < 0)
-                message = $"发现新版本 {latestTag}（当前 {CurrentVersion}）。请到 GitHub 下载最新版。";
-            else if (CompareVersionNumbers(currentNum, latestNum) == 0)
-                message = $"已是最新版本 {CurrentVersion}。";
-            else
-                message = $"当前版本 {CurrentVersion} 领先于远程 {latestTag}，可能是预发布版。";
-
-            MessageBox.Show(this, message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, result.Message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
@@ -912,23 +900,6 @@ public partial class SettingsWindow : Window
             Cursor = Cursors.Arrow;
             Mouse.OverrideCursor = null;
         }
-    }
-
-    private static string NormalizeVersion(string v) =>
-        Regex.Replace(v, @"^[vV]", string.Empty).Trim();
-
-    private static int CompareVersionNumbers(string a, string b)
-    {
-        var aParts = a.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        var bParts = b.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        int len = Math.Max(aParts.Length, bParts.Length);
-        for (int i = 0; i < len; i++)
-        {
-            int ai = i < aParts.Length && int.TryParse(aParts[i], out var x1) ? x1 : 0;
-            int bi = i < bParts.Length && int.TryParse(bParts[i], out var x2) ? x2 : 0;
-            if (ai != bi) return ai.CompareTo(bi);
-        }
-        return 0;
     }
 
     // ==================== Save & Browse Handlers ====================

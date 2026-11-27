@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using KBEA.Core.Plugins;
+using KBEA.Core.Versioning;
 using KBEA.App.ViewModels;
 
 namespace KBEA.App.Services;
@@ -12,8 +13,8 @@ namespace KBEA.App.Services;
 /// </summary>
 public sealed class PluginHostService : IPluginHostContext, IDisposable
 {
-    /// <summary>宿主版本（与 MainViewModel.Version 的语义版本保持一致）。</summary>
-    public const string HostVersionValue = "0.3.0";
+    /// <summary>宿主版本（来自程序集，全仓库唯一真相源：Directory.Build.props 的 &lt;Version&gt;）。</summary>
+    public static string HostVersionValue => AppVersion.Version;
 
     private readonly MainViewModel _main;
     private readonly SidebarState _sidebar;

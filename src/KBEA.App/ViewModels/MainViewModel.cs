@@ -12,6 +12,7 @@ using KBEA.Core.Git;
 using KBEA.Core.Knowledge;
 using KBEA.Core.Models;
 using KBEA.Core.Plugins;
+using KBEA.Core.Versioning;
 using KBEA.Core.Services;
 using KBEA.Core.Storage;
 using KBEA.Core.Team;
@@ -204,7 +205,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand<SharedSpaceItem> OpenSharedItemCommand { get; }
     /// <summary>侧栏团队树点击共享空间行（我的团队→开空间；加入的团队→开 WebDAV）。</summary>
     public RelayCommand<SharedSpaceItem> OpenTeamShareNodeCommand { get; }
-    public string Version => "开源版 v0.3.0";
+    public string Version => $"{BrandingLoader.Current.Edition} {AppVersion.Display}";
 
     /// <summary>品牌名（侧栏标题）——来自 branding/branding.yaml，缺失时用内置默认值。</summary>
     public string ProductName => BrandingLoader.Current.ProductName;
