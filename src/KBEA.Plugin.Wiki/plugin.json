@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "entryAssembly": "KBEA.Plugin.Wiki.dll",
   "capabilities": [ "wiki", "metadata", "toolbar" ],
-  "minHostVersion": "0.4.0",
+  "minHostVersion": "0.5.0",
   "enabled": true
 }

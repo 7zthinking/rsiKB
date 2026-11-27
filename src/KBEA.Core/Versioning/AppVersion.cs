@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 
 namespace KBEA.Core.Versioning;
 
@@ -11,10 +11,10 @@ namespace KBEA.Core.Versioning;
 /// </summary>
 public static class AppVersion
 {
-    /// <summary>版本号（如 "0.4.0"）。来自程序集的 informational version。</summary>
+    /// <summary>版本号（如 "0.5.0"）。来自程序集的 informational version。</summary>
     public static string Version { get; } = ReadVersion();
 
-    /// <summary>带 v 前缀的显示形式（如 "v0.4.0"）。</summary>
+    /// <summary>带 v 前缀的显示形式（如 "v0.5.0"）。</summary>
     public static string Display => "v" + Version;
 
     /// <summary>

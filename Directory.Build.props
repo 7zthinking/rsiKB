@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
   <PropertyGroup>
     <LangVersion>12.0</LangVersion>
     <Deterministic>true</Deterministic>
@@ -12,7 +12,7 @@
        「检查更新」都读程序集里的这个值（见 src/KBEA.Core/Versioning/AppVersion.cs）。
        发布新版本时只改这一处。 -->
   <PropertyGroup>
-    <Version>0.4.0</Version>
+    <Version>0.5.0</Version>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
   </PropertyGroup>
