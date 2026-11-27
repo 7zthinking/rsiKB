@@ -11,7 +11,10 @@
     <Description>知识库自进化助手开源版</Description>
     <SingleAssembly Condition="'$(SingleAssembly)' == ''">false</SingleAssembly>
     <!-- Windows 任务栏 / 资源管理器 / Alt-Tab 图标 -->
-    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <!-- exe 图标：publish.ps1 会把 branding/logo.png 生成为 artifacts/branding/branding-app.ico，
+         存在时嵌入 exe（文件资源管理器/任务栏默认图标）；本地开发无生成物时回落内置 app.ico -->
+    <ApplicationIcon Condition="Exists('..\..\artifacts\branding\branding-app.ico')">..\..\artifacts\branding\branding-app.ico</ApplicationIcon>
+    <ApplicationIcon Condition="!Exists('..\..\artifacts\branding\branding-app.ico')">Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

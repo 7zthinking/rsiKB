@@ -15,6 +15,65 @@ $WorkerProj = Join-Path $Root "src/KBEA.Worker/KBEA.Worker.csproj"
 $PortDir = Join-Path $Root "artifacts/KBEA-Portable"
 $LightDir = Join-Path $Root "artifacts/KBEA-Light"
 
+# ---- 品牌图标：branding/logo.png → artifacts/branding/branding-app.ico（构建前生成）----
+# csproj 检测到该文件就以它作为 ApplicationIcon 嵌入 exe（文件资源管理器/任务栏默认图标）；
+# 没有 branding/logo.png 或解析失败时删除生成物，exe 回落内置 Assets\app.ico。
+$BrandLogo = Join-Path $Root "branding/logo.png"
+$BrandIcoDir = Join-Path $Root "artifacts/branding"
+$BrandIco = Join-Path $BrandIcoDir "branding-app.ico"
+if (Test-Path $BrandIco) { Remove-Item $BrandIco -Force }
+if (Test-Path $BrandLogo) {
+    try {
+        Add-Type -AssemblyName System.Drawing
+        $src = [System.Drawing.Image]::FromFile($BrandLogo)
+        # 从 logo 尺寸向下取整生成一组标准尺寸（PNG 帧，Vista+ 全支持）
+        $min = [Math]::Min($src.Width, $src.Height)
+        $sizes = @(256, 128, 64, 48, 32, 24, 16) | Where-Object { $_ -le $min }
+        if ($sizes.Count -gt 0) {
+            New-Item -ItemType Directory -Force -Path $BrandIcoDir | Out-Null
+            $frames = @()
+            foreach ($s in $sizes) {
+                $bmp = New-Object System.Drawing.Bitmap($s, $s)
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                $g.DrawImage($src, 0, 0, $s, $s)
+                $g.Dispose()
+                $ms = New-Object System.IO.MemoryStream
+                $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+                $bmp.Dispose()
+                $frames += ,@($s, $ms.ToArray())
+                $ms.Dispose()
+            }
+            $src.Dispose()
+
+            # 组装 ICO 容器：ICONDIR(6B) + ICONDIRENTRY(16B)*n + 各 PNG 帧
+            $ico = New-Object System.IO.MemoryStream
+            $bw = New-Object System.IO.BinaryWriter($ico)
+            $bw.Write([uint16]0); $bw.Write([uint16]1); $bw.Write([uint16]$frames.Count)
+            $offset = 6 + 16 * $frames.Count
+            foreach ($f in $frames) {
+                $edge = if ($f[0] -ge 256) { 0 } else { $f[0] }
+                $bw.Write([byte]$edge); $bw.Write([byte]$edge)
+                $bw.Write([byte]0); $bw.Write([byte]0)
+                $bw.Write([uint16]1); $bw.Write([uint16]32)
+                $bw.Write([uint32]$f[1].Length)
+                $bw.Write([uint32]$offset)
+                $offset += $f[1].Length
+            }
+            foreach ($f in $frames) { $bw.Write($f[1]) }
+            $bw.Flush()
+            [System.IO.File]::WriteAllBytes($BrandIco, $ico.ToArray())
+            $bw.Dispose(); $ico.Dispose()
+            Write-Host "  => branding-app.ico (logo.png, $($frames.Count) 尺寸)" -ForegroundColor Green
+        } else {
+            $src.Dispose()
+            Write-Host "  => branding/logo.png 过小，跳过 exe 图标生成" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  => exe 图标生成失败（回落内置图标）：$($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
 # ---- Portable: 单文件 self-contained（给最终用户）----
 Write-Host "`n[1/6] Publishing Portable (single-file self-contained)..." -ForegroundColor Cyan
 & $Dotnet publish $Proj `

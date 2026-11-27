@@ -77,6 +77,8 @@ public partial class MainWindow : Window
             var size = BrandingLoader.Current.LogoSize;
             BrandLogo.Width = size;
             BrandLogo.Height = size;
+            // 窗口图标（标题栏/任务栏/Alt-Tab）同步跟随 branding logo
+            Icon = image;
         }
         catch (Exception ex)
         {
