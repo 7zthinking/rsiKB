@@ -185,21 +185,17 @@ public partial class SettingsWindow : Window
             FontSize = 11
         };
 
-        // ---- credential.helper 配置可视化 ----
-        host.Children.Add(new TextBlock
-        {
-            Text = "credential.helper 配置",
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 4, 0, 6)
-        });
-
+        // ---- credential.helper 配置可视化（未配置时不展示——没什么需要设置的） ----
         var helpers = GitCredentialService.ReadCredentialHelpers();
-        if (!GitCredentialService.GitCliAvailable)
-            host.Children.Add(Hint("未检测到 git 命令行，无法读取 credential.helper 配置（下方凭证列表仍来自 Windows 凭据管理器）。"));
-        else if (helpers.Count == 0)
-            host.Children.Add(Hint("未配置 credential.helper；已保存凭证可能由其他工具管理。"));
-        else
+        if (GitCredentialService.GitCliAvailable && helpers.Count > 0)
+        {
+            host.Children.Add(new TextBlock
+            {
+                Text = "credential.helper 配置",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 4, 0, 6)
+            });
             foreach (var helper in helpers)
                 host.Children.Add(new TextBlock
                 {
@@ -209,6 +205,7 @@ public partial class SettingsWindow : Window
                     Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
                     Margin = new Thickness(0, 0, 0, 2)
                 });
+        }
 
         // ---- 已保存凭证：按「工作空间相关 / 其他」分组 ----
         var entries = GitCredentialService.ListGitCredentials();
@@ -259,7 +256,7 @@ public partial class SettingsWindow : Window
             host.Children.Add(Hint("未找到与工作空间远程仓库关联的凭证；绑定远程仓库并完成登录后，对应凭证会出现在这里。"));
         else
             foreach (var entry in related)
-                host.Children.Add(MakeCredentialRow(entry, string.Join("、", hostToSpaces[entry.Host]), host, dc));
+                host.Children.Add(MakeCredentialCard(entry, string.Join("、", hostToSpaces[entry.Host]), host, dc));
 
         // 第二组：其他凭证（折叠展示）
         var expander = new Expander
@@ -273,7 +270,7 @@ public partial class SettingsWindow : Window
             othersPanel.Children.Add(Hint("没有其他已保存的 Git 凭证。"));
         else
             foreach (var entry in others)
-                othersPanel.Children.Add(MakeCredentialRow(entry, null, host, dc));
+                othersPanel.Children.Add(MakeCredentialCard(entry, null, host, dc));
         expander.Content = othersPanel;
         host.Children.Add(expander);
 
@@ -293,38 +290,15 @@ public partial class SettingsWindow : Window
         host.Children.Add(tip);
     }
 
-    /// <summary>凭证条目行：地址 + 用户名 + 来源空间 + 最后写入时间 + 删除按钮。</summary>
-    private FrameworkElement MakeCredentialRow(GitCredentialEntry entry, string? source, StackPanel sectionHost, AppConfiguration dc)
+    /// <summary>凭证卡片（与「关于我们」同视觉）：地址为标题，右侧用户名，说明行为来源空间与最后写入时间，底部删除按钮。</summary>
+    private FrameworkElement MakeCredentialCard(GitCredentialEntry entry, string? source, StackPanel sectionHost, AppConfiguration dc)
     {
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        info.Children.Add(new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(entry.UserName)
-                ? entry.Url
-                : $"{entry.Url}  ·  {entry.UserName}",
-            TextTrimming = TextTrimming.CharacterEllipsis
-        });
-        info.Children.Add(new TextBlock
-        {
-            Text = source is null
-                ? $"最后写入 {entry.LastWritten:yyyy-MM-dd}"
-                : $"{source} · 最后写入 {entry.LastWritten:yyyy-MM-dd}",
-            FontSize = 11,
-            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
-            Margin = new Thickness(0, 1, 0, 0)
-        });
-        Grid.SetColumn(info, 0);
-
         var deleteBtn = new Button
         {
-            Content = "删除",
-            Padding = new Thickness(12, 2, 12, 2),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 0, 0)
+            Content = "删除凭证",
+            Padding = new Thickness(12, 4, 12, 4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 10, 0, 0)
         };
         deleteBtn.Click += (_, _) =>
         {
@@ -340,11 +314,14 @@ public partial class SettingsWindow : Window
             }
             BuildCredentialSection(sectionHost, dc);
         };
-        Grid.SetColumn(deleteBtn, 1);
 
-        row.Children.Add(info);
-        row.Children.Add(deleteBtn);
-        return row;
+        return MakeAboutCard(
+            entry.Url,
+            null,
+            (source is null ? string.Empty : $"{source} · ") + $"最后写入 {entry.LastWritten:yyyy-MM-dd}",
+            null,
+            deleteBtn,
+            string.IsNullOrWhiteSpace(entry.UserName) ? "未记录用户名" : entry.UserName);
     }
 
     private FrameworkElement BuildAppearancePanel()
@@ -709,8 +686,9 @@ public partial class SettingsWindow : Window
         return panel;
     }
 
-    /// <summary>构建一张「关于我们」卡片：标题（有链接时可点击）+ 版本 + 说明 + 可选底部内容。</summary>
-    private FrameworkElement MakeAboutCard(string title, string? version, string description, string? linkUrl, FrameworkElement? footer = null)
+    /// <summary>构建一张「关于我们」卡片：标题（有链接时可点击）+ 右侧标签 + 说明 + 可选底部内容。
+    /// 右侧标签默认由 version 生成（v 开头原样、否则加「版本」前缀）；<paramref name="rightLabel"/> 可完全覆盖。</summary>
+    private FrameworkElement MakeAboutCard(string title, string? version, string description, string? linkUrl, FrameworkElement? footer = null, string? rightLabel = null)
     {
         var content = new StackPanel();
 
@@ -741,11 +719,13 @@ public partial class SettingsWindow : Window
             titleRow.Children.Add(titleBlock);
         }
 
-        if (!string.IsNullOrEmpty(version))
+        var rightLabelText = rightLabel
+            ?? (version is null ? null : version.StartsWith('v') ? version : $"版本 {version}");
+        if (!string.IsNullOrEmpty(rightLabelText))
         {
             var verBlock = new TextBlock
             {
-                Text = version.StartsWith('v') ? version : $"版本 {version}",
+                Text = rightLabelText,
                 Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
                 FontSize = 11,
                 VerticalAlignment = VerticalAlignment.Center
