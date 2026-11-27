@@ -155,32 +155,14 @@ public partial class SettingsWindow : Window
         });
         panel.Children.Add(new TextBlock
         {
-            Text = "署名与邮箱用于 Git 提交记录；下方可视化当前机器的 credential.helper 配置与已保存的 Git 凭证（凭证密码不读取、不展示，仅支持删除）。",
+            Text = "可视化当前机器的 credential.helper 配置与已保存的 Git 凭证（凭证密码不读取、不展示，仅支持删除）。提交署名沿用配置默认值。",
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
         });
 
-        var authorBox = new TextBox();
-        authorBox.SetBinding(TextBox.TextProperty,
-            new System.Windows.Data.Binding(nameof(AppConfiguration.AuthorName))
-            {
-                UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged,
-                Source = dc
-            });
-        panel.Children.Add(MakeRow("署名", authorBox));
-
-        var emailBox = new TextBox();
-        emailBox.SetBinding(TextBox.TextProperty,
-            new System.Windows.Data.Binding(nameof(AppConfiguration.AuthorEmail))
-            {
-                UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged,
-                Source = dc
-            });
-        panel.Children.Add(MakeRow("邮箱", emailBox));
-
         // ===== 凭证管理（credential.helper 可视化 + 凭证分组管理） =====
-        var credSection = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+        var credSection = new StackPanel { Margin = new Thickness(0, 0, 0, 0) };
         BuildCredentialSection(credSection, dc);
         panel.Children.Add(credSection);
 
