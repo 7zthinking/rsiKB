@@ -421,6 +421,7 @@ public partial class MainWindow : Window
         SetChromeIcon(IconRefresh, KBEA.Core.Plugins.ToolbarIcon.Refresh, color);
         SetChromeIcon(IconSearch, KBEA.Core.Plugins.ToolbarIcon.Search, color);
         SetChromeIcon(IconPreview, KBEA.Core.Plugins.ToolbarIcon.Preview, color);
+        SetChromeIcon(IconSettings, KBEA.Core.Plugins.ToolbarIcon.Settings, color);
         // 内置组重建按钮（图标取新主题色）；插件组同样重建
         EnsureBuiltinToolbarGroup();
         foreach (var group in CollectToolbarGroups()) group.RefreshIcons();

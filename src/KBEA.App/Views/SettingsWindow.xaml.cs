@@ -155,7 +155,7 @@ public partial class SettingsWindow : Window
         });
         panel.Children.Add(new TextBlock
         {
-            Text = "提交记录会使用下面的署名和邮箱；rsync 路径和归档根目录用于远程同步。",
+            Text = "署名与邮箱用于 Git 提交记录；下方可视化当前机器的 credential.helper 配置与已保存的 Git 凭证（凭证密码不读取、不展示，仅支持删除）。",
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
@@ -179,7 +179,190 @@ public partial class SettingsWindow : Window
             });
         panel.Children.Add(MakeRow("邮箱", emailBox));
 
+        // ===== 凭证管理（credential.helper 可视化 + 凭证分组管理） =====
+        var credSection = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+        BuildCredentialSection(credSection, dc);
+        panel.Children.Add(credSection);
+
         return panel;
+    }
+
+    /// <summary>
+    /// 凭证管理区：先展示 credential.helper 配置；已保存凭证分两组——
+    /// 优先展示「工作空间远程仓库」涉及的凭证（标明来源空间），其余收在「其他凭证」折叠区。
+    /// </summary>
+    private void BuildCredentialSection(StackPanel host, AppConfiguration dc)
+    {
+        host.Children.Clear();
+
+        TextBlock Hint(string text) => new()
+        {
+            Text = text,
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11
+        };
+
+        // ---- credential.helper 配置可视化 ----
+        host.Children.Add(new TextBlock
+        {
+            Text = "credential.helper 配置",
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 4, 0, 6)
+        });
+
+        var helpers = GitCredentialService.ReadCredentialHelpers();
+        if (!GitCredentialService.GitCliAvailable)
+            host.Children.Add(Hint("未检测到 git 命令行，无法读取 credential.helper 配置（下方凭证列表仍来自 Windows 凭据管理器）。"));
+        else if (helpers.Count == 0)
+            host.Children.Add(Hint("未配置 credential.helper；已保存凭证可能由其他工具管理。"));
+        else
+            foreach (var helper in helpers)
+                host.Children.Add(new TextBlock
+                {
+                    Text = $"[{helper.Scope}] {helper.Helper}    （{helper.Origin}）",
+                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                    FontSize = 11,
+                    Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+                    Margin = new Thickness(0, 0, 0, 2)
+                });
+
+        // ---- 已保存凭证：按「工作空间相关 / 其他」分组 ----
+        var entries = GitCredentialService.ListGitCredentials();
+        var hostToSpaces = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var space in dc.Spaces.Where(s => !string.IsNullOrWhiteSpace(s.RemoteUrl)))
+        {
+            var remoteHost = GitCredentialService.ExtractRemoteHost(space.RemoteUrl);
+            if (remoteHost is null) continue;
+            if (!hostToSpaces.TryGetValue(remoteHost, out var names)) hostToSpaces[remoteHost] = names = [];
+            names.Add(space.Name);
+        }
+
+        var related = entries.Where(e => hostToSpaces.ContainsKey(e.Host)).ToList();
+        var others = entries.Where(e => !hostToSpaces.ContainsKey(e.Host)).ToList();
+
+        // 列表标题行 + 刷新
+        var listHeader = new Grid { Margin = new Thickness(0, 14, 0, 4) };
+        listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var headerText = new TextBlock
+        {
+            Text = $"已保存的 Git 凭证（{entries.Count} 条）",
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(headerText, 0);
+        var refreshBtn = new Button
+        {
+            Content = "刷新",
+            Padding = new Thickness(12, 2, 12, 2),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        refreshBtn.Click += (_, _) => BuildCredentialSection(host, dc);
+        Grid.SetColumn(refreshBtn, 1);
+        listHeader.Children.Add(headerText);
+        listHeader.Children.Add(refreshBtn);
+        host.Children.Add(listHeader);
+
+        // 第一组（优先）：工作空间远程仓库涉及的凭证
+        host.Children.Add(new TextBlock
+        {
+            Text = "工作空间相关凭证",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 4)
+        });
+        if (related.Count == 0)
+            host.Children.Add(Hint("未找到与工作空间远程仓库关联的凭证；绑定远程仓库并完成登录后，对应凭证会出现在这里。"));
+        else
+            foreach (var entry in related)
+                host.Children.Add(MakeCredentialRow(entry, string.Join("、", hostToSpaces[entry.Host]), host, dc));
+
+        // 第二组：其他凭证（折叠展示）
+        var expander = new Expander
+        {
+            Header = $"其他凭证（{others.Count} 条）",
+            IsExpanded = false,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var othersPanel = new StackPanel();
+        if (others.Count == 0)
+            othersPanel.Children.Add(Hint("没有其他已保存的 Git 凭证。"));
+        else
+            foreach (var entry in others)
+                othersPanel.Children.Add(MakeCredentialRow(entry, null, host, dc));
+        expander.Content = othersPanel;
+        host.Children.Add(expander);
+
+        var tip = new Border
+        {
+            Background = (System.Windows.Media.Brush)FindResource("AccentSoftBrush"),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12),
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        tip.Child = new TextBlock
+        {
+            Text = "提示：凭证保存在 Windows 凭据管理器（Git Credential Manager / wincred 写入 git:* 条目）。删除凭证不影响仓库数据，Git 下次访问对应仓库时会重新要求登录。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
+        };
+        host.Children.Add(tip);
+    }
+
+    /// <summary>凭证条目行：地址 + 用户名 + 来源空间 + 最后写入时间 + 删除按钮。</summary>
+    private FrameworkElement MakeCredentialRow(GitCredentialEntry entry, string? source, StackPanel sectionHost, AppConfiguration dc)
+    {
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        info.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(entry.UserName)
+                ? entry.Url
+                : $"{entry.Url}  ·  {entry.UserName}",
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        info.Children.Add(new TextBlock
+        {
+            Text = source is null
+                ? $"最后写入 {entry.LastWritten:yyyy-MM-dd}"
+                : $"{source} · 最后写入 {entry.LastWritten:yyyy-MM-dd}",
+            FontSize = 11,
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+            Margin = new Thickness(0, 1, 0, 0)
+        });
+        Grid.SetColumn(info, 0);
+
+        var deleteBtn = new Button
+        {
+            Content = "删除",
+            Padding = new Thickness(12, 2, 12, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0)
+        };
+        deleteBtn.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this,
+                    $"确定删除凭证 {entry.Url} 吗？\n删除后 Git 下次访问该仓库会重新要求登录。",
+                    "删除凭证", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+            if (!GitCredentialService.DeleteCredential(entry.Target))
+            {
+                MessageBox.Show(this, "删除失败（可能被系统策略保护或需要相应权限）。",
+                    "删除凭证", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            BuildCredentialSection(sectionHost, dc);
+        };
+        Grid.SetColumn(deleteBtn, 1);
+
+        row.Children.Add(info);
+        row.Children.Add(deleteBtn);
+        return row;
     }
 
     private FrameworkElement BuildAppearancePanel()
