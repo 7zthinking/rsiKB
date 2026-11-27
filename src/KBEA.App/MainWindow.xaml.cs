@@ -103,6 +103,10 @@ public partial class MainWindow : Window
         {
             Dispatcher.BeginInvoke(new Action(() => SyncRemoteSidebarSelection(ViewModel.SelectedRemoteLocation)), System.Windows.Threading.DispatcherPriority.Background);
         }
+        else if (e.PropertyName == nameof(MainViewModel.SelectedFavoritePath))
+        {
+            Dispatcher.BeginInvoke(new Action(() => SyncFavoriteListSelection(ViewModel.SelectedFavoritePath)), System.Windows.Threading.DispatcherPriority.Background);
+        }
         else if (e.PropertyName == nameof(MainViewModel.IsCurrentPathFavorited))
         {
             // 收藏状态变化（★/☆ 与文案），重建内置组按钮
@@ -651,7 +655,11 @@ public partial class MainWindow : Window
     private void RemoteList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_syncingSidebarSelection) return;
-        if (sender is ListBox { SelectedItem: KBEA.Core.Models.RemoteLocationDefinition location })
+        if (sender is not ListBox { SelectedItem: KBEA.Core.Models.RemoteLocationDefinition location }) return;
+        // 本地目录页里的「网络位置」分组：纯定位跳转，左侧栏保持在当前页
+        if (ReferenceEquals(sender, RemoteListInLocal))
+            _ = ViewModel.OpenRemoteLocationFromLocalAsync(location);
+        else
             ViewModel.OpenRemoteLocationCommand.Execute(location);
     }
 
@@ -664,7 +672,24 @@ public partial class MainWindow : Window
 
     private void FavoriteList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        // 程序化同步选中态时不要触发打开（否则会在路径同步时产生导航循环）
+        if (_syncingSidebarSelection) return;
         if (sender is ListBox { SelectedItem: string path }) ViewModel.OpenFavoriteCommand.Execute(path);
+    }
+
+    /// <summary>把收藏列表的选中项同步到当前标签路径（不触发打开）。target 为 null 时清空选中。</summary>
+    private void SyncFavoriteListSelection(string? target)
+    {
+        _syncingSidebarSelection = true;
+        try
+        {
+            var current = FavoriteList.SelectedItem as string;
+            if (target is not null && current is not null && current.Equals(target, StringComparison.OrdinalIgnoreCase)) return;
+            FavoriteList.SelectedItem = target is null
+                ? null
+                : FavoriteList.Items.OfType<string>().FirstOrDefault(x => x.Equals(target, StringComparison.OrdinalIgnoreCase));
+        }
+        finally { _syncingSidebarSelection = false; }
     }
 
     private void LocalNode_Expanded(object sender, RoutedEventArgs e)

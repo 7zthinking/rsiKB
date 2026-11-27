@@ -327,6 +327,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 SelectedNode = null;
                 SelectedLocalFolder = null;
                 SelectedRemoteLocation = null;
+                SelectedFavoritePath = null;
             }
             RefreshCommands();
             _pluginHost?.Refresh();
@@ -362,6 +363,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 SelectedLocalFolder = null;
                 SelectedRemoteLocation = null;
                 SelectedNode = null;
+                SelectedFavoritePath = null;
             }
             switch (tab.SourceKind)
             {
@@ -376,6 +378,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 default:
                     SidebarSection = SidebarSection.Local;
                     SelectLocalFolder(tab.CurrentPath);
+                    SelectedFavoritePath = Favorites.FirstOrDefault(x => x.Equals(tab.CurrentPath, StringComparison.OrdinalIgnoreCase));
                     break;
             }
         }
@@ -428,6 +431,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _selectedRemoteLocation, value);
     }
     private RemoteLocationDefinition? _selectedRemoteLocation;
+
+    /// <summary>左侧栏「收藏」分组中与当前标签路径一致的条目（纯路径字符串，供 UI 高亮）。</summary>
+    public string? SelectedFavoritePath
+    {
+        get => _selectedFavoritePath;
+        private set => SetProperty(ref _selectedFavoritePath, value);
+    }
+    private string? _selectedFavoritePath;
 
     public bool IsBusy
     {
@@ -1265,12 +1276,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         tab.SelectionChanged += (_, _) => RefreshCommands();
         tab.GitStatusChanged += (_, _) => { if (SelectedTab == tab) RefreshCommands(); };
-        // 标签来源变化（空间↔本地↔远程）→ 左侧栏跟着切到对应类别。
-        // 同一标签的来源切换不主动清三类选中（点击场景下视觉已正确），只设目标项。
         tab.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(MountTabViewModel.SourceKind) && SelectedTab == tab) SyncSidebarToTab(clearOthers: false);
+            if (SelectedTab != tab) return;
+            // 标签来源变化（空间↔本地↔远程）→ 左侧栏跟着切到对应类别。
+            // 同一标签的来源切换不主动清三类选中（点击场景下视觉已正确），只设目标项。
+            if (e.PropertyName == nameof(MountTabViewModel.SourceKind)) SyncSidebarToTab(clearOthers: false);
+            // 路径变化（向上一级/后退/前进/地址栏）→ 工具栏状态与侧栏选中态跟随当前目录
+            else if (e.PropertyName == nameof(MountTabViewModel.CurrentPath)) OnTabPathChanged();
         };
+    }
+
+    /// <summary>
+    /// 当前标签路径变化：工具栏（收藏★/☆、Git、归档等）与左侧栏选中态统一跟随当前位置。
+    /// 当前位置唯一由文件夹浏览面板（标签）确定。
+    /// </summary>
+    private void OnTabPathChanged()
+    {
+        OnPropertyChanged(nameof(IsCurrentPathFavorited));
+        OnPropertyChanged(nameof(FavoriteButtonText));
+        RefreshCommands();
+        SyncSidebarToTab(clearOthers: false);
     }
 
     /// <summary>新增真实标签，并把它插到末尾的“＋”占位标签之前。</summary>
@@ -1433,6 +1459,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _dialogs.Info($"远程位置打开失败：{ex.Message}");
         }
         finally { IsBusy = false; }
+    }
+
+    /// <summary>
+    /// 从「本地目录」侧栏点击网络位置：只把当前标签切到该远程来源，
+    /// 左侧栏保持在「本地目录」页不跳走（网络位置分组内高亮该条目）。
+    /// </summary>
+    public async Task OpenRemoteLocationFromLocalAsync(RemoteLocationDefinition? location)
+    {
+        if (location is null) return;
+        _suppressSidebarSync = true;
+        try { await OpenRemoteAsync(location); }
+        finally { _suppressSidebarSync = false; }
+        // 侧栏选中态手动收尾：本地目录类清空，网络位置分组高亮点击项
+        SelectedLocalFolder = null;
+        SelectedFavoritePath = null;
+        SelectedRemoteLocation = location;
     }
 
     private string PrepareRemoteLocation(RemoteLocationDefinition location)
@@ -1676,10 +1718,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void OpenFavorite(string? path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return;
-        var space = _configuration.Spaces.FirstOrDefault(x => path.StartsWith(x.Path, StringComparison.OrdinalIgnoreCase));
-        if (space is null) { OpenLocal(path); return; }
-        OpenSpace(space);
-        SelectedTab?.Navigate(path);
+        // 收藏 = 纯定位跳转：在当前标签打开该目录，左侧栏保持在「本地目录」页不跳走
+        OpenLocal(path);
     }
 
     private void UpdateFavorites()

@@ -306,6 +306,8 @@ public sealed partial class MountTabViewModel : ObservableObject
             if (!SetProperty(ref _currentPath, value)) return;
             OnPropertyChanged(nameof(Title));
             OnPropertyChanged(nameof(IsComputer));
+            // 通知宿主（MainViewModel）：工具栏状态与侧栏选中态跟随当前位置
+            OnPropertyChanged(nameof(CurrentPath));
         }
     }
     public string AddressText { get => _addressText; set => SetProperty(ref _addressText, value); }
