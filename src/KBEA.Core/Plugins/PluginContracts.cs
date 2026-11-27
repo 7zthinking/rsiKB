@@ -639,3 +639,28 @@ public interface IPreviewContribution
 
     (byte[]? ImageData, string Text) Render(string filePath);
 }
+
+/// <summary>「关于我们」卡片内容：插件经 IAboutContribution 产出，宿主渲染为设置 → 关于我们 页的卡片。</summary>
+public sealed record AboutCardInfo
+{
+    /// <summary>卡片标题（插件名/组件名）。</summary>
+    public string Title { get; init; } = string.Empty;
+
+    /// <summary>一行说明。</summary>
+    public string Description { get; init; } = string.Empty;
+
+    /// <summary>版本号（可空；展示为「版本 x」）。</summary>
+    public string? Version { get; init; }
+
+    /// <summary>点击标题跳转的链接（可空）。</summary>
+    public string? LinkUrl { get; init; }
+}
+
+/// <summary>
+/// 「关于我们」卡片贡献：宿主在设置 → 关于我们 页「插件提供」分组下追加插件卡片。
+/// GetAboutCard 在窗口打开时（UI 线程）调用一次；返回 null 表示本次不展示。
+/// </summary>
+public interface IAboutContribution
+{
+    AboutCardInfo? GetAboutCard();
+}

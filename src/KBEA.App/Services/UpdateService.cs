@@ -166,33 +166,34 @@ public static class UpdateService
         // PS 单引号字符串转义（路径可能含撇号）
         static string Q(string s) => "'" + s.Replace("'", "''") + "'";
 
-        var script = $"""
+        // 注意：$$ 内插原始字符串——{{ }} 是内插语法，PS 大括号用单个字面量 { }
+        var script = $$"""
             # KBEA 自动更新脚本（由应用生成）：解压覆盖安装目录后重启应用。
             $ErrorActionPreference = 'Stop'
-            $installDir = {Q(installDir)}
-            $zipPath = {Q(zipPath)}
-            $statePath = {Q(StatePath)}
+            $installDir = {{Q(installDir)}}
+            $zipPath = {{Q(zipPath)}}
+            $statePath = {{Q(StatePath)}}
 
             # 1) 等待主程序与后台服务退出（最多 30 秒，超时强制结束）
-            foreach ($name in @('KBEA', 'KBEA.Worker')) {{
+            foreach ($name in @('KBEA', 'KBEA.Worker')) {
                 $deadline = (Get-Date).AddSeconds(30)
-                while (Get-Process -Name $name -ErrorAction SilentlyContinue) {{
-                    if ((Get-Date) -gt $deadline) {{ Stop-Process -Name $name -Force -ErrorAction SilentlyContinue; break }}
+                while (Get-Process -Name $name -ErrorAction SilentlyContinue) {
+                    if ((Get-Date) -gt $deadline) { Stop-Process -Name $name -Force -ErrorAction SilentlyContinue; break }
                     Start-Sleep -Milliseconds 300
-                }}
-            }}
+                }
+            }
 
             # 2) 解压更新包（CI 产物以安装内容为根；兼容带一层目录的包）
             $temp = Join-Path $env:TEMP ('kbea-update-' + [guid]::NewGuid().ToString('N'))
             Expand-Archive -Path $zipPath -DestinationPath $temp -Force
             $source = Join-Path $temp 'KBEA-Portable'
-            if (-not (Test-Path $source)) {{ $source = $temp }}
+            if (-not (Test-Path $source)) { $source = $temp }
 
             # 3) 覆盖程序文件；branding/ 是本机固化配置（logo/标题/主题色），保留不动
-            Get-ChildItem -LiteralPath $source -Force | ForEach-Object {{
-                if ($_.Name -eq 'branding') {{ return }}
+            Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
+                if ($_.Name -eq 'branding') { return }
                 Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $installDir $_.Name) -Recurse -Force
-            }}
+            }
 
             # 4) 清理临时文件与更新状态，重启应用
             Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue

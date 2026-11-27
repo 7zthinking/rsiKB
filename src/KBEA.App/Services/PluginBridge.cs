@@ -24,4 +24,7 @@ public static class PluginBridge
 
     /// <summary>插件清单与加载状态（P5：设置窗口「插件管理」页）。</summary>
     public static IReadOnlyList<PluginStatusVm> GetPluginStatuses() => Instance?.GetPluginStatuses() ?? [];
+
+    /// <summary>插件「关于我们」卡片集合（SettingsWindow 打开时用）。</summary>
+    public static IReadOnlyList<AboutCardInfo> GetAboutCards() => Instance?.GetAboutCards() ?? [];
 }

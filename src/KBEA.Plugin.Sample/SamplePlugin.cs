@@ -8,11 +8,11 @@ namespace KBEA.Plugin.Sample;
 /// <summary>
 /// 打样插件：演示 manifest 发现 → ALC 加载 → Init 注入 → 工具栏注册 的完整链路。
 /// Init 时把示例元数据插件注册进 PluginManager，使 .sampletxt 文件在整理时获得扩展属性。
-/// P4：再演示三个扩展点——详情字段（IMetadataFieldContribution）、预览接手（IPreviewContribution）、
-/// 设置页（ISettingsContribution）。设置项持久化由插件自行负责（示例为内存态，重启还原默认）。
+/// P4：再演示四个扩展点——详情字段（IMetadataFieldContribution）、预览接手（IPreviewContribution）、
+/// 设置页（ISettingsContribution）、关于卡片（IAboutContribution）。设置项持久化由插件自行负责（示例为内存态，重启还原默认）。
 /// </summary>
 public sealed class SamplePlugin : IPluginEntryPoint, IToolbarContribution,
-    IMetadataFieldContribution, IPreviewContribution, ISettingsContribution
+    IMetadataFieldContribution, IPreviewContribution, ISettingsContribution, IAboutContribution
 {
     private IPluginHostContext? _context;
 
@@ -108,6 +108,15 @@ public sealed class SamplePlugin : IPluginEntryPoint, IToolbarContribution,
         if (_noteBoxRef is not null) _sampleNote = _noteBoxRef.Text;
         _context?.Ui.SetGlobalStatus($"示例插件设置已保存：{_sampleNote}");
     }
+
+    /// <summary>关于卡片：设置 → 关于我们 页「插件提供」分组下追加示例卡片。</summary>
+    public AboutCardInfo? GetAboutCard() => new()
+    {
+        Title = "示例插件",
+        Version = "0.1.0",
+        Description = "框架打样插件：演示工具栏、详情字段、预览接手、设置页与关于卡片等扩展点的接入方式。",
+        LinkUrl = "https://github.com/7zthinking/rsiKB"
+    };
 }
 
 /// <summary>极简 ICommand 实现，避免插件引入额外依赖。</summary>

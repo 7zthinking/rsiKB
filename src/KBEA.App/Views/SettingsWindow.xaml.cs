@@ -483,76 +483,195 @@ public partial class SettingsWindow : Window
             Margin = new Thickness(0, 0, 0, 14)
         });
 
-        panel.Children.Add(new TextBlock
-        {
-            Text = BrandingLoader.Current.WindowTitle,
-            FontSize = 20,
-            FontWeight = FontWeights.Bold
-        });
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"版本 {AppVersion.Display}",
-            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
-            Margin = new Thickness(0, 2, 0, 10)
-        });
-
-        panel.Children.Add(new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(BrandingLoader.Current.Tagline)
-                ? "一个以 Git / rsync 为底座的知识工作台，把本地目录、远程仓库和归档节点串成一张可追溯、可对比的知识图谱。开源核心可独立使用，插件接入后提供智能助手与报表能力。"
-                : BrandingLoader.Current.Tagline,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
-            Margin = new Thickness(0, 0, 0, 14)
-        });
-
-        // GitHub link
-        var linkText = new TextBlock();
-        var runPrefix = new Run("项目地址：");
-        var link = new Hyperlink
-        {
-            NavigateUri = new Uri("https://github.com/7zthinking/rsiKB")
-        };
-        link.Inlines.Add(new Run("https://github.com/7zthinking/rsiKB"));
-        link.RequestNavigate += (s, e) =>
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
-            }
-            catch
-            {
-                /* ignore */
-            }
-            e.Handled = true;
-        };
-        linkText.Inlines.Add(runPrefix);
-        linkText.Inlines.Add(link);
-        panel.Children.Add(linkText);
-
-        // Check for Updates button
+        // ===== 主卡片：rsiKB =====
         var updateBtn = new Button
         {
             Content = "检查更新",
             Style = (Style)FindResource("PrimaryButton"),
             Width = 110,
+            HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 12, 0, 0)
         };
         updateBtn.Click += async (_, _) => await CheckForUpdatesAsync();
-        panel.Children.Add(updateBtn);
 
-        // 持久化的更新流程状态摘要（已下载 / 下载中断 / 待下载）
+        var footer = new StackPanel();
+        footer.Children.Add(updateBtn);
         _updateStatusText = new TextBlock
         {
             Text = GetUpdateStatusSummary(),
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 8, 0, 0)
+            Margin = new Thickness(0, 8, 0, 0),
+            Visibility = string.IsNullOrEmpty(GetUpdateStatusSummary()) ? Visibility.Collapsed : Visibility.Visible
         };
-        panel.Children.Add(_updateStatusText);
+        footer.Children.Add(_updateStatusText);
+
+        panel.Children.Add(MakeAboutCard(
+            BrandingLoader.Current.WindowTitle,
+            AppVersion.Display,
+            string.IsNullOrWhiteSpace(BrandingLoader.Current.Tagline)
+                ? "一个以 Git / rsync 为底座的知识工作台，把本地目录、远程仓库和归档节点串成一张可追溯、可对比的知识图谱。开源核心可独立使用，插件接入后提供智能助手与报表能力。"
+                : BrandingLoader.Current.Tagline,
+            "https://github.com/7zthinking/rsiKB",
+            footer));
+
+        // ===== 开源依赖卡片 =====
+        panel.Children.Add(new TextBlock
+        {
+            Text = "开源依赖",
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 8)
+        });
+        foreach (var dep in BuildDependencyCards())
+            panel.Children.Add(MakeAboutCard(dep.Title, dep.Version, dep.Description, dep.LinkUrl));
+
+        // ===== 插件提供的卡片 =====
+        var pluginCards = PluginBridge.GetAboutCards();
+        if (pluginCards.Count > 0)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = "插件提供",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 8, 0, 8)
+            });
+            foreach (var card in pluginCards)
+                panel.Children.Add(MakeAboutCard(card.Title, card.Version, card.Description, card.LinkUrl));
+        }
 
         return panel;
     }
+
+    /// <summary>构建一张「关于我们」卡片：标题（有链接时可点击）+ 版本 + 说明 + 可选底部内容。</summary>
+    private FrameworkElement MakeAboutCard(string title, string? version, string description, string? linkUrl, FrameworkElement? footer = null)
+    {
+        var content = new StackPanel();
+
+        // 标题行：标题（左）+ 版本（右）
+        var titleRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        if (!string.IsNullOrEmpty(linkUrl))
+        {
+            var linkBlock = new TextBlock();
+            var hyperlink = new Hyperlink { NavigateUri = new Uri(linkUrl) };
+            hyperlink.Inlines.Add(new Run(title) { FontWeight = FontWeights.SemiBold });
+            hyperlink.RequestNavigate += (s, e) =>
+            {
+                try { Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true }); }
+                catch { /* 忽略 */ }
+                e.Handled = true;
+            };
+            linkBlock.Inlines.Add(hyperlink);
+            Grid.SetColumn(linkBlock, 0);
+            titleRow.Children.Add(linkBlock);
+        }
+        else
+        {
+            var titleBlock = new TextBlock { Text = title, FontWeight = FontWeights.SemiBold };
+            Grid.SetColumn(titleBlock, 0);
+            titleRow.Children.Add(titleBlock);
+        }
+
+        if (!string.IsNullOrEmpty(version))
+        {
+            var verBlock = new TextBlock
+            {
+                Text = version.StartsWith('v') ? version : $"版本 {version}",
+                Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(verBlock, 1);
+            titleRow.Children.Add(verBlock);
+        }
+        content.Children.Add(titleRow);
+
+        content.Children.Add(new TextBlock
+        {
+            Text = description,
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11
+        });
+
+        if (footer is not null) content.Children.Add(footer);
+
+        return new Border
+        {
+            Background = (System.Windows.Media.Brush)FindResource("CardBackground"),
+            BorderBrush = (System.Windows.Media.Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 10),
+            Child = content
+        };
+    }
+
+    /// <summary>核心开源依赖清单（与 THIRD-PARTY-NOTICES.md 对应，运行时依赖）。</summary>
+    private static IReadOnlyList<AboutCardInfo> BuildDependencyCards() =>
+    [
+        new()
+        {
+            Title = ".NET 8 / WPF",
+            Version = "8.0",
+            Description = "应用运行时与 UI 框架，绿色版自包含分发。",
+            LinkUrl = "https://github.com/dotnet/runtime"
+        },
+        new()
+        {
+            Title = "CommunityToolkit.Mvvm",
+            Version = "8.4.0",
+            Description = "MVVM 框架：可观察属性、命令与消息机制。",
+            LinkUrl = "https://github.com/CommunityToolkit/dotnet"
+        },
+        new()
+        {
+            Title = "Microsoft.Data.Sqlite",
+            Version = "8.0.11",
+            Description = "本地元数据与任务存储（SQLite）。",
+            LinkUrl = "https://learn.microsoft.com/dotnet/standard/data/sqlite"
+        },
+        new()
+        {
+            Title = "DiffPlex",
+            Version = "1.7.2",
+            Description = "文本差异对比（版本历史与冲突比较）。",
+            LinkUrl = "https://github.com/mmanela/diffplex"
+        },
+        new()
+        {
+            Title = "LibGit2Sharp",
+            Version = "0.31.0",
+            Description = "Git 操作核心（保存推送、拉取、历史），随 Git 插件分发。",
+            LinkUrl = "https://github.com/libgit2/libgit2sharp"
+        },
+        new()
+        {
+            Title = "Makaretu.Dns.Multicast",
+            Version = "0.27.0",
+            Description = "mDNS 组播发现，用于团队/组织设备发现。",
+            LinkUrl = "https://github.com/richardschneider/net-mdns"
+        },
+        new()
+        {
+            Title = "YamlDotNet",
+            Version = "13.7.1",
+            Description = "branding 固化配置（logo/标题/主题色）解析。",
+            LinkUrl = "https://github.com/aaubry/YamlDotNet"
+        },
+        new()
+        {
+            Title = "Microsoft.Extensions.DependencyInjection",
+            Version = "8.0.1",
+            Description = "宿主服务依赖注入容器。",
+            LinkUrl = "https://github.com/dotnet/runtime"
+        }
+    ];
 
     private FrameworkElement BuildOrganizationPanel()
     {

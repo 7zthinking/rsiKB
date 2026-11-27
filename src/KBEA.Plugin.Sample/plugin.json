@@ -3,7 +3,7 @@
   "name": "示例插件",
   "version": "0.1.0",
   "entryAssembly": "KBEA.Plugin.Sample.dll",
-  "capabilities": [ "toolbar", "metadata", "fields", "preview", "settings" ],
+  "capabilities": [ "toolbar", "metadata", "fields", "preview", "settings", "about" ],
   "minHostVersion": "0.4.0",
   "enabled": true
 }

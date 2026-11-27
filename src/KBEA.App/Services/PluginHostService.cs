@@ -24,6 +24,7 @@ public sealed class PluginHostService : IPluginHostContext, IDisposable
     private readonly List<ISettingsContribution> _settingsContributors = [];
     private readonly List<IMetadataFieldContribution> _fieldContributors = [];
     private readonly List<IPreviewContribution> _previewContributors = [];
+    private readonly List<IAboutContribution> _aboutContributors = [];
     private readonly Dictionary<string, string> _pluginStatuses = new(StringComparer.OrdinalIgnoreCase);
 
     public PluginHostService(MainViewModel main)
@@ -97,6 +98,9 @@ public sealed class PluginHostService : IPluginHostContext, IDisposable
                 _fieldContributors.Add(fields);
             if (manifest.HasCapability("preview") && plugin.Instance is IPreviewContribution preview)
                 _previewContributors.Add(preview);
+            // 「关于我们」卡片贡献（能力 + 接口双匹配）
+            if (manifest.HasCapability("about") && plugin.Instance is IAboutContribution about)
+                _aboutContributors.Add(about);
         }
     }
 
@@ -150,6 +154,22 @@ public sealed class PluginHostService : IPluginHostContext, IDisposable
             catch (Exception ex) { DiagLog.Exception($"插件 {contributor.GetType().Name} 读取详情字段失败", ex); }
         }
         return rows;
+    }
+
+    /// <summary>收集各插件的「关于我们」卡片（SettingsWindow 打开时调用，UI 线程；单个插件失败不影响其余）。</summary>
+    public IReadOnlyList<AboutCardInfo> GetAboutCards()
+    {
+        var cards = new List<AboutCardInfo>();
+        foreach (var contributor in _aboutContributors)
+        {
+            try
+            {
+                var card = contributor.GetAboutCard();
+                if (card is not null) cards.Add(card);
+            }
+            catch (Exception ex) { DiagLog.Exception($"插件 {contributor.GetType().Name} 构建关于卡片失败", ex); }
+        }
+        return cards;
     }
 
     /// <summary>预览链第一棒：按扩展名找第一个接手的插件（未命中返回 null，宿主走内置渲染）。</summary>

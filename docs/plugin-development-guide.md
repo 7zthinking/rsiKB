@@ -263,7 +263,7 @@ public interface IUiSurface
 
 ---
 
-## 4. 五个扩展点
+## 4. 扩展点
 
 ### 4.1 工具栏（IToolbarContribution）
 
@@ -330,6 +330,7 @@ Full (图标+文字) → IconsOnly (仅图标) → Collapsed (首按钮 + ▾ �
 | `settings` | `ISettingsContribution` | 设置窗口打开时回调 |
 | `fields` | `IMetadataFieldContribution` | 选中文件变化时回调 |
 | `preview` | `IPreviewContribution` | 预览时优先询问插件 |
+| `about` | `IAboutContribution` | 设置 → 关于我们 页追加插件卡片 |
 | `git` | `IGitOperations` 实现 | 通过 `GitOperationsProvider.Register()` 替换宿主 Git 服务 |
 | `wiki` | `IWikiOperations` 实现 | 通过 `WikiOperationsProvider.Register()` 替换宿主 WIKI 服务 |
 
@@ -467,6 +468,39 @@ public void Init(IPluginHostContext context)
     PluginManager.Instance.Register(new MyMetadataPlugin());
 }
 ```
+
+### 4.7 关于我们卡片（IAboutContribution）
+
+插件可在 设置 → 关于我们 页的「插件提供」分组下追加自己的卡片（如插件介绍、作者信息、文档链接）：
+
+```csharp
+public interface IAboutContribution
+{
+    AboutCardInfo? GetAboutCard();  // 返回 null 表示本次不展示
+}
+
+public sealed record AboutCardInfo
+{
+    public string Title { get; init; }       // 卡片标题
+    public string Description { get; init; } // 一行说明
+    public string? Version { get; init; }    // 版本号（可空，展示为「版本 x」）
+    public string? LinkUrl { get; init; }    // 标题跳转链接（可空）
+}
+```
+
+示例（打样插件 SamplePlugin 的实现）：
+
+```csharp
+public AboutCardInfo? GetAboutCard() => new()
+{
+    Title = "示例插件",
+    Version = "0.1.0",
+    Description = "框架打样插件：演示各扩展点的接入方式。",
+    LinkUrl = "https://github.com/7zthinking/rsiKB"
+};
+```
+
+`GetAboutCard` 在设置窗口打开时（UI 线程）调用一次；单个插件失败不影响其余卡片渲染。
 
 ---
 
@@ -668,6 +702,7 @@ public IReadOnlyList<ToolbarGroupVm> GetToolbarGroups()
 | 在设置窗口加配置页 | `ISettingsContribution` | `settings` |
 | 在文件详情里加字段 | `IMetadataFieldContribution` | `fields` |
 | 接管某种文件的预览 | `IPreviewContribution` | `preview` |
+| 在「关于我们」页加介绍卡片 | `IAboutContribution` | `about` |
 | 参与文件整理的元数据抽取 | `IMetadataPlugin` / `ITypeMetadataPlugin` | — |
 | 替换宿主的某类操作（如 Git、归档） | 实现对应 `IXxxOperations` + 静态 `Provider.Register` | `git` / `wiki` / `archive` |
 | 读宿主当前浏览位置 | `context.Browser.Current` | — |
