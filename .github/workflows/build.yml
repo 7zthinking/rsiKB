@@ -1,8 +1,14 @@
 name: Build, test and package
 
+# 发版流程（Tag 驱动）：
+#   git tag v0.5.1 && git push origin v0.5.1
+# → CI 从 tag 读取版本号（覆盖 Directory.Build.props）→ 构建/测试/打包
+# → 自动创建 GitHub Release 并附加 zip + sha256。
+# push 到 main 只做构建与测试，不发版、不改版本号。
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -19,7 +25,8 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       DOTNET_NOLOGO: "1"
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      # release 事件或 v* tag push 时为 tag 名（如 v0.5.1），其余为空
+      RELEASE_TAG: ${{ github.event.release.tag_name || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -29,18 +36,37 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Derive version from tag
+        if: env.RELEASE_TAG != ''
+        shell: pwsh
+        run: |
+          $version = "$env:RELEASE_TAG".TrimStart('v')
+          "VERSION=$version" | Add-Content $env:GITHUB_ENV
+          Write-Host "Building with version $version (from tag $env:RELEASE_TAG)"
+
       - name: Restore dependencies
         run: dotnet restore KBEA.sln
 
       - name: Build Release
-        run: dotnet build KBEA.sln --configuration Release --no-restore
+        shell: pwsh
+        run: |
+          $dotnetArgs = @("build", "KBEA.sln", "--configuration", "Release", "--no-restore")
+          if ($env:VERSION) { $dotnetArgs += "-p:Version=$($env:VERSION)" }
+          dotnet $dotnetArgs
 
       - name: Run tests
-        run: dotnet test tests/KBEA.Tests/KBEA.Tests.csproj --configuration Release --no-build
+        shell: pwsh
+        run: |
+          $dotnetArgs = @("test", "tests/KBEA.Tests/KBEA.Tests.csproj", "--configuration", "Release", "--no-build")
+          if ($env:VERSION) { $dotnetArgs += "-p:Version=$($env:VERSION)" }
+          dotnet $dotnetArgs
 
       - name: Publish portable application
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./publish.ps1
+        run: |
+          $psArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "./publish.ps1")
+          if ($env:VERSION) { $psArgs += "-Version", "$($env:VERSION)" }
+          powershell $psArgs
 
       - name: Create portable ZIP and checksum
         shell: pwsh
@@ -56,7 +82,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: KBEA-Portable-${{ github.event.release.tag_name || github.run_number }}
+          name: KBEA-Portable-${{ github.event.release.tag_name || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || github.run_number }}
           path: |
             artifacts/KBEA-*-win-x64.zip
             artifacts/KBEA-*-win-x64.zip.sha256
@@ -66,21 +92,37 @@ jobs:
   publish-release:
     name: Attach package to GitHub Release
     needs: build
-    if: github.event_name == 'release' && github.event.action == 'published'
+    # release 事件（手动建 Release）：向其上传产物；v* tag push：自动创建 Release 并附加产物
+    if: (github.event_name == 'release' && github.event.action == 'published') || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     permissions:
       contents: write
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: KBEA-Portable-${{ github.event.release.tag_name }}
+          name: KBEA-Portable-${{ github.event.release.tag_name || github.ref_name }}
           path: release-package
 
-      - name: Upload ZIP and checksum to Release
+      - name: Create release and upload package (tag push)
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name != 'release'
+        shell: pwsh
+        run: |
+          $files = (Get-ChildItem release-package -File).FullName
+          if (gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY > $null 2>&1) {
+            gh release upload $env:RELEASE_TAG $files --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create $env:RELEASE_TAG $files --repo $env:GITHUB_REPOSITORY `
+              --title "rsiKB $env:RELEASE_TAG" --generate-notes --latest
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Release create/upload failed." }
+          Write-Host "Release $env:RELEASE_TAG ready: $(gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json url --jq .url)"
+
+      - name: Upload package to existing Release (release published)
+        if: github.event_name == 'release' && github.event.action == 'published'
         shell: pwsh
         run: |
           Get-ChildItem -Path release-package -File | ForEach-Object {

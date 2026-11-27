@@ -1,4 +1,11 @@
-﻿$ErrorActionPreference = "Stop"
+﻿param([string]$Version = "")
+
+$ErrorActionPreference = "Stop"
+
+# 版本覆盖（CI 发版用）：传 -Version 0.5.1 会以 -p:Version 覆盖 Directory.Build.props 的默认版本
+$VersionArgs = @()
+if ($Version) { $VersionArgs = @("-p:Version=$Version") }
+
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Dotnet = Join-Path $Root ".dotnet/dotnet.exe"
 if (-not (Test-Path $Dotnet)) { $Dotnet = "dotnet" }
@@ -13,7 +20,7 @@ Write-Host "`n[1/6] Publishing Portable (single-file self-contained)..." -Foregr
 & $Dotnet publish $Proj `
     --configuration Release --runtime win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:DebugType=None -p:DebugSymbols=false --output $PortDir
+    -p:DebugType=None -p:DebugSymbols=false --output $PortDir @VersionArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 foreach ($File in @("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md")) {
@@ -41,7 +48,7 @@ Write-Host "`n[2/6] Publishing Light (multi-file self-contained)..." -Foreground
 & $Dotnet publish $Proj `
     --configuration Release --runtime win-x64 --self-contained true `
     -p:PublishSingleFile=false `
-    -p:DebugType=None -p:DebugSymbols=false --output $LightDir
+    -p:DebugType=None -p:DebugSymbols=false --output $LightDir @VersionArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "  => $LightDir ($((Get-ChildItem $LightDir -Recurse -File).Count) files)" -ForegroundColor Green
 
@@ -50,7 +57,7 @@ Write-Host "`n[3/6] Publishing Worker (single-file self-contained)..." -Foregrou
 & $Dotnet publish $WorkerProj `
     --configuration Release --runtime win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:DebugType=None -p:DebugSymbols=false --output $PortDir
+    -p:DebugType=None -p:DebugSymbols=false --output $PortDir @VersionArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "  => $PortDir/KBEA.Worker.exe" -ForegroundColor Green
 
@@ -58,7 +65,7 @@ Write-Host "  => $PortDir/KBEA.Worker.exe" -ForegroundColor Green
 & $Dotnet publish $WorkerProj `
     --configuration Release --runtime win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:DebugType=None -p:DebugSymbols=false --output $LightDir
+    -p:DebugType=None -p:DebugSymbols=false --output $LightDir @VersionArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "  => $LightDir/KBEA.Worker.exe" -ForegroundColor Green
 
