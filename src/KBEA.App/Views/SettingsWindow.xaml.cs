@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
     private readonly AppConfiguration _configuration;
     private readonly Dictionary<string, FrameworkElement> _panels = new();
     private readonly Action? _onPluginSave;
+    private TextBlock? _updateStatusText;
 
     public ObservableCollection<LlmEndpointConfig> LlmEndpoints { get; } = new();
 
@@ -63,9 +64,8 @@ public partial class SettingsWindow : Window
         _panels["profile"] = BuildProfilePanel();
         _panels["git"] = BuildGitPanel();
         _panels["appearance"] = BuildAppearancePanel();
-        _panels["model"] = BuildModelPanel();
-        _panels["organization"] = BuildOrganizationPanel();
-        _panels["sharing"] = BuildSharingPanel();
+        // 「模型设置」暂时隐藏：BuildModelPanel 保留，恢复时在此重新登记
+        _panels["organization"] = BuildOrganizationPanel(); // 已并入原「共享设置」内容
         _panels["plugins"] = BuildPluginsPanel();
         _panels["about"] = BuildAboutPanel();
 
@@ -233,6 +233,7 @@ public partial class SettingsWindow : Window
         return panel;
     }
 
+    /// <summary>模型设置（暂时隐藏：未登记到分类列表，功能恢复时在构造函数重新登记）。</summary>
     private FrameworkElement BuildModelPanel()
     {
         var panel = new StackPanel();
@@ -307,55 +308,6 @@ public partial class SettingsWindow : Window
         btnPanel.Children.Add(addBtn);
         btnPanel.Children.Add(removeBtn);
         panel.Children.Add(btnPanel);
-
-        return panel;
-    }
-
-    private FrameworkElement BuildSharingPanel()
-    {
-        var dc = (AppConfiguration)DataContext;
-        var panel = new StackPanel();
-
-        panel.Children.Add(new TextBlock
-        {
-            Text = "共享设置",
-            FontSize = 18,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 6)
-        });
-        panel.Children.Add(new TextBlock
-        {
-            Text = "团队共享的本地参数：内容缓存限额、同步节奏和服务端口。修改后重启应用生效。",
-            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 14)
-        });
-
-        panel.Children.Add(MakeNumberRow("内容缓存限额 (GB)",
-            nameof(AppConfiguration.TeamCacheLimitGb), dc, "取回过的团队文件按 LRU 缓存在本地，超出限额自动淘汰。0.1–100。"));
-
-        panel.Children.Add(MakeNumberRow("同步间隔 (分钟)",
-            nameof(AppConfiguration.TeamSyncIntervalMinutes), dc,
-            "定时拉取团队成员元数据的周期；成员上线和手动刷新也会触发。1–120。"));
-
-        panel.Children.Add(MakeNumberRow("服务端口",
-            nameof(AppConfiguration.TeamServicePort), dc,
-            "文件服务起始端口（默认 52235），被占用时自动向后尝试 6 个。防火墙放行规则会按此端口添加。1–65535。"));
-
-        var tip = new Border
-        {
-            Background = (System.Windows.Media.Brush)FindResource("AccentSoftBrush"),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 12, 0, 0)
-        };
-        tip.Child = new TextBlock
-        {
-            Text = "提示：昵称在「团队管理」窗口修改；防火墙放行引导在「新建团队」时弹出，之后也可在团队管理里重试。",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
-        };
-        panel.Children.Add(tip);
 
         return panel;
     }
@@ -589,6 +541,16 @@ public partial class SettingsWindow : Window
         updateBtn.Click += async (_, _) => await CheckForUpdatesAsync();
         panel.Children.Add(updateBtn);
 
+        // 持久化的更新流程状态摘要（已下载 / 下载中断 / 待下载）
+        _updateStatusText = new TextBlock
+        {
+            Text = GetUpdateStatusSummary(),
+            Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        panel.Children.Add(_updateStatusText);
+
         return panel;
     }
 
@@ -608,7 +570,7 @@ public partial class SettingsWindow : Window
         });
         panel.Children.Add(new TextBlock
         {
-            Text = "组织是局域网中共享工作空间的一组 KBEA 实例。发现协议基于 UDP 广播（端口 4719），当前为预留 stub。",
+            Text = "组织是局域网中共享工作空间的一组 KBEA 实例（发现协议基于 UDP 广播，端口 4719），当前为预留 stub。下方同时包含团队共享的本地参数，修改后重启应用生效。",
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
@@ -748,17 +710,37 @@ public partial class SettingsWindow : Window
         RebindOrganizationList(itemsControl, dc, service);
         panel.Children.Add(itemsControl);
 
+        // ===== 共享参数（原「共享设置」页并入本页） =====
+        panel.Children.Add(new TextBlock
+        {
+            Text = "共享参数",
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 16, 0, 8)
+        });
+
+        panel.Children.Add(MakeNumberRow("内容缓存限额 (GB)",
+            nameof(AppConfiguration.TeamCacheLimitGb), dc, "取回过的团队文件按 LRU 缓存在本地，超出限额自动淘汰。0.1–100。"));
+
+        panel.Children.Add(MakeNumberRow("同步间隔 (分钟)",
+            nameof(AppConfiguration.TeamSyncIntervalMinutes), dc,
+            "定时拉取团队成员元数据的周期；成员上线和手动刷新也会触发。1–120。"));
+
+        panel.Children.Add(MakeNumberRow("服务端口",
+            nameof(AppConfiguration.TeamServicePort), dc,
+            "文件服务起始端口（默认 52235），被占用时自动向后尝试 6 个。防火墙放行规则会按此端口添加。1–65535。"));
+
         // 共享开关说明区（预留，暂仅配置占位）
         var shareTip = new Border
         {
             Background = (System.Windows.Media.Brush)FindResource("AccentSoftBrush"),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12),
-            Margin = new Thickness(0, 16, 0, 0)
+            Margin = new Thickness(0, 12, 0, 0)
         };
         shareTip.Child = new TextBlock
         {
-            Text = "空间级共享将在主界面的「工作空间」标签中提供开关；此处 OrganizationShares 列表仅作配置占位。",
+            Text = "提示：昵称在「团队管理」窗口修改；防火墙放行引导在「新建团队」时弹出，之后也可在团队管理里重试。空间级共享开关在主界面的「工作空间」标签中提供。",
             TextWrapping = TextWrapping.Wrap,
             Foreground = (System.Windows.Media.Brush)FindResource("SecondaryTextBrush")
         };
@@ -868,6 +850,11 @@ public partial class SettingsWindow : Window
 
     // ==================== Check for Updates ====================
 
+    /// <summary>
+    /// 检查更新主流程（状态持久化在 %LOCALAPPDATA%\KBEA\Update\state.json）：
+    /// 已下载 → 提示启动更新；下载中断 → 提示断点续传；否则远程检查 → 询问下载
+    /// → 下载窗口（可暂停，断点保留）→ 下载完成询问启动更新。
+    /// </summary>
     private async Task CheckForUpdatesAsync()
     {
         try
@@ -875,21 +862,77 @@ public partial class SettingsWindow : Window
             Cursor = Cursors.Wait;
             Mouse.OverrideCursor = Cursors.Wait;
 
-            // 用 Releases 列表接口（而不是 /releases/latest）：后者会跳过预发布版，
-            // 测试版发布时用户永远看不到更新。
+            // 1) 本地已下载完成（或更新脚本已启动但应用未退出）→ 直接进入启动更新
+            var state = UpdateService.LoadState();
+            if (state is { Phase: UpdatePhase.Downloaded or UpdatePhase.Updating }
+                && !string.IsNullOrEmpty(state.ZipPath)
+                && VersionComparer.Compare(CurrentVersion, state.TargetVersion) < 0)
+            {
+                if (MessageBox.Show(this,
+                        $"新版本 {state.TargetVersion} 已下载完成。是否立即启动更新？\n\n启动后将自动关闭应用、应用更新并重新打开。",
+                        "启动更新", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                    LaunchUpdateNow(state.ZipPath, state);
+                return;
+            }
+
+            // 2) 有未完成的下载 → 提示断点续传
+            if (state is { Phase: UpdatePhase.Paused }
+                && !string.IsNullOrEmpty(state.AssetUrl) && !string.IsNullOrEmpty(state.ZipPath)
+                && File.Exists(state.ZipPath)
+                && VersionComparer.Compare(CurrentVersion, state.TargetVersion) < 0)
+            {
+                var percent = state.TotalBytes > 0
+                    ? $"（已完成 {state.DownloadedBytes * 100 / state.TotalBytes:0}%）" : "";
+                if (MessageBox.Show(this,
+                        $"上次下载 {state.TargetVersion} 中断{percent}。是否继续下载？",
+                        "继续下载", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                    await DownloadUpdateAsync(state);
+                return;
+            }
+
+            // 3) 远程检查：用 Releases 列表接口（/releases/latest 会跳过预发布版）
             var response = await _httpClient.GetAsync(UpdateChecker.ReleasesApiUrl);
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
             var result = UpdateChecker.Evaluate(json, CurrentVersion);
 
-            if (result.Status == UpdateStatus.Failed)
+            if (result.Status is UpdateStatus.Failed or UpdateStatus.UpToDate or UpdateStatus.Ahead)
             {
-                MessageBox.Show(this, result.Message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Warning);
+                // 远程没有可下的更新 → 清掉残留的待下载/中断状态
+                if (result.Status is not UpdateStatus.Failed) UpdateService.ClearState();
+                RefreshUpdateStatus();
+                MessageBox.Show(this, result.Message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            MessageBox.Show(this, result.Message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Information);
+            // NewVersion / NewPrerelease
+            if (string.IsNullOrEmpty(result.AssetUrl))
+            {
+                var open = MessageBox.Show(this,
+                    $"{result.Message}\n\n未找到自动更新安装包，是否打开 GitHub 发布页手动下载？",
+                    "检查更新", MessageBoxButton.YesNo, MessageBoxImage.Information);
+                if (open == MessageBoxResult.Yes && result.ReleaseUrl is not null)
+                    Process.Start(new ProcessStartInfo(result.ReleaseUrl) { UseShellExecute = true });
+                return;
+            }
+
+            if (MessageBox.Show(this,
+                    $"{result.Message}\n\n是否现在下载更新包？",
+                    "检查更新", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+
+            var newState = new UpdateState
+            {
+                Phase = UpdatePhase.Available,
+                TargetVersion = result.LatestVersion,
+                IsPrerelease = result.IsPrerelease,
+                AssetUrl = result.AssetUrl,
+                ReleaseUrl = result.ReleaseUrl,
+                ZipPath = UpdateService.GetZipPath(result.LatestVersion!)
+            };
+            UpdateService.SaveState(newState);
+            await DownloadUpdateAsync(newState);
         }
         catch (Exception ex)
         {
@@ -900,6 +943,78 @@ public partial class SettingsWindow : Window
             Cursor = Cursors.Arrow;
             Mouse.OverrideCursor = null;
         }
+    }
+
+    /// <summary>打开下载窗口（断点续传）；结束后按结果持久化状态并询问是否启动更新。</summary>
+    private async Task DownloadUpdateAsync(UpdateState state)
+    {
+        var resumeFrom = state.Phase == UpdatePhase.Paused && File.Exists(state.ZipPath!)
+            ? new FileInfo(state.ZipPath!).Length : 0;
+
+        var dialog = new UpdateDownloadWindow(state.TargetVersion ?? "新版本", state.AssetUrl!, state.ZipPath!, resumeFrom)
+        {
+            Owner = this
+        };
+        dialog.ShowDialog();
+
+        if (dialog.Completed)
+        {
+            state.Phase = UpdatePhase.Downloaded;
+            state.DownloadedBytes = state.TotalBytes = new FileInfo(state.ZipPath!).Length;
+            UpdateService.SaveState(state);
+            RefreshUpdateStatus();
+
+            if (MessageBox.Show(this,
+                    $"新版本 {state.TargetVersion} 下载完成。是否立即启动更新？\n\n启动后将自动关闭应用、应用更新并重新打开。",
+                    "下载完成", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                LaunchUpdateNow(state.ZipPath!, state);
+        }
+        else
+        {
+            // 暂停/中断/失败：记录断点，下次「检查更新」时提示继续
+            state.Phase = UpdatePhase.Paused;
+            state.DownloadedBytes = File.Exists(state.ZipPath!) ? new FileInfo(state.ZipPath!).Length : 0;
+            UpdateService.SaveState(state);
+            RefreshUpdateStatus();
+        }
+        await Task.CompletedTask;
+    }
+
+    /// <summary>启动更新脚本并退出应用（脚本等待本进程退出后覆盖安装目录并重启）。</summary>
+    private void LaunchUpdateNow(string zipPath, UpdateState state)
+    {
+        state.Phase = UpdatePhase.Updating;
+        UpdateService.SaveState(state);
+        if (!UpdateService.LaunchUpdater(zipPath))
+        {
+            state.Phase = UpdatePhase.Downloaded;
+            UpdateService.SaveState(state);
+            MessageBox.Show(this, "更新程序启动失败，请稍后重试或到 GitHub 发布页手动下载。",
+                "启动更新", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        // 更新脚本已接管：等待本进程退出后覆盖安装目录并重新打开应用
+        Application.Current.Shutdown();
+    }
+
+    /// <summary>持久化状态 → 「关于我们」面板上的摘要文字。</summary>
+    private string GetUpdateStatusSummary()
+    {
+        var state = UpdateService.LoadState();
+        if (state is null || string.IsNullOrEmpty(state.TargetVersion)) return string.Empty;
+        if (VersionComparer.Compare(CurrentVersion, state.TargetVersion) >= 0) return string.Empty;
+        return state.Phase switch
+        {
+            UpdatePhase.Downloaded or UpdatePhase.Updating => $"新版本 {state.TargetVersion} 已下载完成，点击「检查更新」启动更新。",
+            UpdatePhase.Paused => $"新版本 {state.TargetVersion} 下载中断，点击「检查更新」可从断点继续。",
+            UpdatePhase.Available => $"远程有新版本 {state.TargetVersion} 可下载。",
+            _ => string.Empty
+        };
+    }
+
+    private void RefreshUpdateStatus()
+    {
+        if (_updateStatusText is not null) _updateStatusText.Text = GetUpdateStatusSummary();
     }
 
     // ==================== Save & Browse Handlers ====================

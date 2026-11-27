@@ -10,6 +10,8 @@ public sealed record UpdateCheckResult(
     bool IsPrerelease,
     /// <summary>最新版本的下载页地址。</summary>
     string? ReleaseUrl,
+    /// <summary>自动更新安装包（KBEA-*-win-x64.zip）的下载地址；release 未附产物时为 null。</summary>
+    string? AssetUrl,
     /// <summary>给用户看的一句话结论。</summary>
     string Message,
     /// <summary>结论类型。</summary>
@@ -60,12 +62,12 @@ public static class UpdateChecker
         }
         catch (JsonException ex)
         {
-            return new UpdateCheckResult(null, false, null, $"无法解析远程版本信息：{ex.Message}", UpdateStatus.Failed);
+            return new UpdateCheckResult(null, false, null, null, $"无法解析远程版本信息：{ex.Message}", UpdateStatus.Failed);
         }
 
         var candidates = releases.Where(r => !r.Draft).ToList();
         if (candidates.Count == 0)
-            return new UpdateCheckResult(null, false, null, "GitHub 上还没有发布任何版本。", UpdateStatus.Failed);
+            return new UpdateCheckResult(null, false, null, null, "GitHub 上还没有发布任何版本。", UpdateStatus.Failed);
 
         var stable = candidates.Where(r => !r.Prerelease).ToList();
         var latestStable = stable.Count > 0 ? Newest(stable) : null;
@@ -84,7 +86,7 @@ public static class UpdateChecker
         {
             // 只有正式版且都不比本地新 → 已是最新
             var newest = Newest(candidates)!;
-            return new UpdateCheckResult(newest.Tag, newest.Prerelease, newest.Url,
+            return new UpdateCheckResult(newest.Tag, newest.Prerelease, newest.Url, newest.AssetUrl,
                 $"已是最新版本 {currentVersion}。", UpdateStatus.UpToDate);
         }
 
@@ -105,7 +107,7 @@ public static class UpdateChecker
             _ => UpdateStatus.Ahead
         };
 
-        return new UpdateCheckResult(chosen.Tag, chosen.Prerelease, chosen.Url, message, status);
+        return new UpdateCheckResult(chosen.Tag, chosen.Prerelease, chosen.Url, chosen.AssetUrl, message, status);
     }
 
     /// <summary>取版本号最大的一条。</summary>
@@ -141,9 +143,26 @@ public static class UpdateChecker
             var url = item.TryGetProperty("html_url", out var urlProp) ? urlProp.GetString() : null;
             var draft = item.TryGetProperty("draft", out var draftProp) && draftProp.ValueKind == JsonValueKind.True;
             var prerelease = item.TryGetProperty("prerelease", out var preProp) && preProp.ValueKind == JsonValueKind.True;
-            result.Add(new ReleaseInfo(tag, VersionComparer.Parse(tag), draft, prerelease, url));
+            result.Add(new ReleaseInfo(tag, VersionComparer.Parse(tag), draft, prerelease, url, FindPortableZipAsset(item)));
         }
         return result;
+    }
+
+    /// <summary>
+    /// 从 release 的 assets 里找自动更新安装包（文件名以 -win-x64.zip 结尾，排除 .sha256 校验文件）。
+    /// </summary>
+    private static string? FindPortableZipAsset(JsonElement item)
+    {
+        if (!item.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array) return null;
+        foreach (var asset in assets.EnumerateArray())
+        {
+            var name = asset.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
+            var download = asset.TryGetProperty("browser_download_url", out var dlProp) ? dlProp.GetString() : null;
+            if (!string.IsNullOrWhiteSpace(download) &&
+                name?.EndsWith("-win-x64.zip", StringComparison.OrdinalIgnoreCase) == true)
+                return download;
+        }
+        return null;
     }
 }
 
@@ -153,4 +172,5 @@ public sealed record ReleaseInfo(
     ParsedVersion? Version,
     bool Draft,
     bool Prerelease,
-    string? Url);
+    string? Url,
+    string? AssetUrl);

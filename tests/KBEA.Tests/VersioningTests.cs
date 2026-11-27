@@ -210,4 +210,24 @@ public sealed class VersioningTests
         Assert.Equal("v0.4.0", result.LatestVersion);
         Assert.Equal(UpdateStatus.NewVersion, result.Status);
     }
+
+    [Fact]
+    public void UpdateChecker_ExtractsPortableZipAssetUrl()
+    {
+        // 从 assets 里找 KBEA-*-win-x64.zip 自动更新包（排除 .sha256）
+        var json = """
+            [
+              { "tag_name": "v0.5.0", "draft": false, "prerelease": false,
+                "assets": [
+                  { "name": "KBEA-v0.5.0-win-x64.zip.sha256", "browser_download_url": "https://x/KBEA-v0.5.0-win-x64.zip.sha256" },
+                  { "name": "KBEA-v0.5.0-win-x64.zip", "browser_download_url": "https://x/KBEA-v0.5.0-win-x64.zip" }
+                ] }
+            ]
+            """;
+
+        var result = UpdateChecker.Evaluate(json, "0.4.0");
+
+        Assert.Equal(UpdateStatus.NewVersion, result.Status);
+        Assert.Equal("https://x/KBEA-v0.5.0-win-x64.zip", result.AssetUrl);
+    }
 }
