@@ -30,6 +30,19 @@ public sealed partial class SearchHitItem : ObservableObject
 
     public string RelativePath => Hit.RelativePath;
 
+    /// <summary>地址前段（目录部分，含尾部分隔符；与 PathTail 拼出「头尾可见、中间省略」的地址行）。</summary>
+    public string PathHead
+    {
+        get
+        {
+            var directory = Path.GetDirectoryName(Hit.RelativePath);
+            return string.IsNullOrEmpty(directory) ? string.Empty : directory + '\\';
+        }
+    }
+
+    /// <summary>地址后段（文件名，始终完整显示）。</summary>
+    public string PathTail => FileName;
+
     public string FullPath => Hit.FullPath;
 
     public string Summary => Hit.Summary;

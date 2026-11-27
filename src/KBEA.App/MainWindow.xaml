@@ -608,10 +608,9 @@
                             </Grid>
                         </Border>
                     </Grid>
-                </Grid>
 
-                <!-- 检索结果面板（嵌入浏览界面：地址栏/搜索栏/预览保留在原位） -->
-                <Grid Grid.Row="2" Visibility="{Binding IsSearchView, Converter={StaticResource BoolToVisibility}}">
+                    <!-- 检索结果面板（chrome row2：与文件列表同一格互斥可见，地址栏/工具栏保留原位） -->
+                    <Grid Grid.Row="2" Visibility="{Binding IsSearchView, Converter={StaticResource BoolToVisibility}}">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <StackPanel Margin="2,2,2,8">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -647,48 +646,82 @@
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Margin="0,3">
-                                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                    <!-- 结果卡片：行1 图标+文件名+评分+操作；行2 地址(头…尾)+时间版本(右对齐)；行3 标签；行4 版本簇展开 -->
+                                    <Border Margin="0,0,4,7" CornerRadius="6" Padding="10,7" BorderThickness="1">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{DynamicResource CardBackground}" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+                                                    </Trigger>
+                                                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
                                         <Grid>
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                            <Image Source="{Binding Converter={StaticResource FileIconConverter}}" Width="18" Height="18" Margin="0,0,7,0" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="1" Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="2" Text="{Binding Score}" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center" Margin="8,0" ToolTip="相关度评分" />
-                                            <StackPanel Grid.Column="3" Orientation="Horizontal">
-                                                <Button Content="打开" Style="{StaticResource IconButton}" Command="{Binding DataContext.KnowledgeSearch.OpenHitCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}" />
-                                                <Button Content="所在文件夹" Style="{StaticResource IconButton}" Command="{Binding DataContext.KnowledgeSearch.OpenFolderCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}" ToolTip="新标签页定位到该文件所在文件夹" />
-                                                <Button Content="⌄" Style="{StaticResource IconButton}" Command="{Binding DataContext.KnowledgeSearch.ToggleSiblingsCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"
-                                                        Visibility="{Binding HasSiblings, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding SiblingSummary}" />
-                                            </StackPanel>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                <Image Source="{Binding Converter={StaticResource FileIconConverter}}" Width="18" Height="18" Margin="0,0,7,0" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="1" Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="2" Text="{Binding Score}" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center" Margin="8,0" ToolTip="相关度评分" />
+                                                <StackPanel Grid.Column="3" Orientation="Horizontal">
+                                                    <Button Content="打开" Style="{StaticResource IconButton}" Command="{Binding DataContext.KnowledgeSearch.OpenHitCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}" />
+                                                    <Button Content="所在文件夹" Style="{StaticResource IconButton}" Command="{Binding DataContext.KnowledgeSearch.OpenFolderCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}" ToolTip="新标签页定位到该文件所在文件夹" />
+                                                    <Button Content="⌄" Style="{StaticResource IconButton}" Command="{Binding DataContext.KnowledgeSearch.ToggleSiblingsCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"
+                                                            Visibility="{Binding HasSiblings, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding SiblingSummary}" />
+                                                </StackPanel>
+                                            </Grid>
+                                            <!-- 地址 + 时间版本同行：地址头尾部可见、中段省略；时间版本右对齐 -->
+                                            <Grid Grid.Row="1" Margin="25,3,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding PathHead}" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding PathTail}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                                                </Grid>
+                                                <TextBlock Grid.Column="1" Text="{Binding Summary}" Margin="12,0,0,0"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" VerticalAlignment="Center" />
+                                            </Grid>
+                                            <ItemsControl Grid.Row="2" ItemsSource="{Binding TagChips}" Margin="0,4,0,0">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="6,1" Margin="0,2,5,2" ToolTip="{Binding Tooltip}">
+                                                            <TextBlock Text="{Binding Display}" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}" />
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <!-- 历史版本展开区（独立行，不与标签重叠） -->
+                                            <ItemsControl Grid.Row="3" ItemsSource="{Binding Siblings}" Margin="22,4,0,0"
+                                                          Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                                                            <TextBlock Text="·" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,6,0" />
+                                                            <TextBlock Text="{Binding FileName}" FontSize="12" />
+                                                            <TextBlock Text="{Binding Summary}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="8,0,0,0" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
                                         </Grid>
-                                        <TextBlock Grid.Row="1" Text="{Binding RelativePath}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Row="2" Text="{Binding Summary}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12" Margin="0,2" />
-                                        <ItemsControl Grid.Row="3" ItemsSource="{Binding TagChips}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="6,1" Margin="0,2,5,2" ToolTip="{Binding Tooltip}">
-                                                        <TextBlock Text="{Binding Display}" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}" />
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                        <!-- 历史版本展开区（独立行，不与标签重叠） -->
-                                        <ItemsControl Grid.Row="4" ItemsSource="{Binding Siblings}" Margin="22,4,0,0"
-                                                      Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal" Margin="0,2">
-                                                        <TextBlock Text="·" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,6,0" />
-                                                        <TextBlock Text="{Binding FileName}" FontSize="12" />
-                                                        <TextBlock Text="{Binding Summary}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="8,0,0,0" />
-                                                    </StackPanel>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </Grid>
+                                    </Border>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
@@ -741,6 +774,7 @@
                     <TextBlock Grid.Row="1" Text="没有匹配结果。可调整描述，或在「◈ 知识WIKI」中重新构建标签与描述。" Foreground="{DynamicResource SecondaryTextBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16"
                                Visibility="{Binding KnowledgeSearch.HasResult, Converter={StaticResource InverseBoolToVisibility}, ConverterParameter=Inverse}" />
+                    </Grid>
                 </Grid>
 
                 <Grid Visibility="{Binding IsEmptyView, Converter={StaticResource BoolToVisibility}}" Background="{DynamicResource PanelBackground}">
